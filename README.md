@@ -19,16 +19,21 @@ in one click.**
 
 ## Status
 
-Scaffold stage. The specification is `.agent/DOCA_DESK_BRIEF.md` — read it before writing code.
+Milestones **M1–M7 complete** — reports in `.agent/M1_REPORT.md` … `.agent/M1_M7_COMPLETE.md`,
+live notes in `.agent/LIVE_ACCEPTANCE.md`.
+
+**Compatible with Doca server `2.9.0`.**
+
+Specification: `.agent/DOCA_DESK_BRIEF.md`.
 
 ## Building
 
-Requires the .NET 9 SDK and the Windows App SDK workload. See the brief §3 for the project
-layout and the platform baseline; the solution is created as part of milestone M1.
+Requires the .NET 9 SDK (pinned in `global.json`). WinUI app is unpackaged + Windows App SDK
+self-contained.
 
 ```
-dotnet build
 dotnet test
+dotnet build src/DocaDesk/DocaDesk.csproj -p:Platform=x64
 ```
 
 ## Related repos

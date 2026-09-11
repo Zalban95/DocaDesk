@@ -1,0 +1,102 @@
+<Window
+    x:Class="DocaDesk.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Title / toolbar -->
+        <Grid Grid.Row="0" Padding="12,8" Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="TitleText" Text="DocaDesk" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                <Button x:Name="ZoomOutBtn" Content="−" Click="ZoomOut_Click" ToolTipService.ToolTip="Zoom out" Width="36" />
+                <Button x:Name="ZoomResetBtn" Content="100%" Click="ZoomReset_Click" ToolTipService.ToolTip="Reset zoom" />
+                <Button x:Name="ZoomInBtn" Content="+" Click="ZoomIn_Click" ToolTipService.ToolTip="Zoom in" Width="36" />
+                <Button x:Name="ReloadBtn" Content="Reload" Click="Reload_Click" />
+                <Button x:Name="SettingsBtn" Content="Settings" Click="Settings_Click" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Main content layers -->
+        <Grid Grid.Row="1">
+            <WebView2 x:Name="DashboardView" Visibility="Collapsed" />
+
+            <Border x:Name="PairPanel" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="32">
+                <StackPanel MaxWidth="480" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                    <TextBlock Text="DocaDesk" FontSize="36" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    <TextBlock Text="Pair this PC with your Doca server. Create a code in the dashboard under Settings → API Keys → Pair a device (phone preset)."
+                               TextWrapping="WrapWholeWords" Opacity="0.8" />
+                    <TextBox x:Name="ServerUrlBox" Header="Server URL" />
+                    <TextBox x:Name="DeviceNameBox" Header="Device name" />
+                    <TextBox x:Name="PairCodeBox" Header="Pairing code" PlaceholderText="641-598" />
+                    <TextBox x:Name="PinBox" Header="Certificate pin (SHA-256, only for self-signed)"
+                             PlaceholderText="Leave empty for normal CA trust (Tailscale)" />
+                    <TextBlock x:Name="PairError" Foreground="DarkRed" TextWrapping="WrapWholeWords" Visibility="Collapsed" />
+                    <Button x:Name="PairBtn" Content="Pair" Style="{StaticResource AccentButtonStyle}" Click="Pair_Click" HorizontalAlignment="Stretch" />
+                    <HyperlinkButton Content="Probe certificate fingerprint" Click="ProbePin_Click" HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <Border x:Name="StatusPanel" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                    Padding="32" Visibility="Collapsed">
+                <StackPanel MaxWidth="520" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                    <TextBlock x:Name="StatusTitle" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    <TextBlock x:Name="StatusBody" TextWrapping="WrapWholeWords" Opacity="0.85" HorizontalAlignment="Center" TextAlignment="Center" />
+                    <Button x:Name="StatusRetryBtn" Content="Retry" Click="Retry_Click" HorizontalAlignment="Center" />
+                    <Button x:Name="StatusUnpairBtn" Content="Unpair" Click="Unpair_Click" HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <Border x:Name="SettingsPanel" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                    Padding="24" Visibility="Collapsed">
+                <ScrollViewer>
+                    <StackPanel MaxWidth="560" HorizontalAlignment="Center" Spacing="12" Margin="0,12,0,24">
+                        <TextBlock Text="Settings" FontSize="28" FontWeight="SemiBold" />
+                        <TextBlock Text="Settings change this device. Profiles (what the dashboard shows) live on the server."
+                                   TextWrapping="WrapWholeWords" Opacity="0.75" />
+
+                        <TextBlock Text="Consent / MCP tools" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
+                        <TextBlock Text="Everything starts off. The agent cannot use a tool until you switch it on here (independent of the dashboard)."
+                                   TextWrapping="WrapWholeWords" Opacity="0.75" />
+                        <ToggleSwitch x:Name="McpListenerToggle" Header="MCP listener (off by default)" Toggled="McpListener_Toggled" />
+                        <TextBox x:Name="McpUrlBox" Header="Listener URL (paste into dashboard → MCP → Transport: http → Runs on: a paired client)"
+                                 IsReadOnly="True" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Copy URL" Click="McpCopy_Click" />
+                            <Button Content="Regenerate secret" Click="McpRegen_Click" />
+                        </StackPanel>
+                        <TextBlock Text="Registration: dashboard → MCP tab → add server → Transport: http → paste URL → Runs on: a paired client → pick this device. Tool list is stable; refresh Tools in the dashboard after changes."
+                                   TextWrapping="WrapWholeWords" Opacity="0.75" FontSize="12" />
+                        <ToggleSwitch x:Name="ToolListWindows" Header="list_windows (read)" Toggled="ToolConsent_Toggled" Tag="list_windows" />
+                        <ToggleSwitch x:Name="ToolScreenshot" Header="screenshot (read)" Toggled="ToolConsent_Toggled" Tag="screenshot" />
+                        <ToggleSwitch x:Name="ToolGetClip" Header="get_clipboard_text (read)" Toggled="ToolConsent_Toggled" Tag="get_clipboard_text" />
+                        <ToggleSwitch x:Name="ToolSetClip" Header="set_clipboard_text (write)" Toggled="ToolConsent_Toggled" Tag="set_clipboard_text" />
+                        <ToggleSwitch x:Name="ToolOpenUrl" Header="open_url (write)" Toggled="ToolConsent_Toggled" Tag="open_url" />
+
+                        <TextBlock Text="Audit (recent)" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
+                        <ListView x:Name="AuditList" MaxHeight="180" />
+
+                        <ToggleSwitch x:Name="StartMinimizedToggle" Header="Start minimized (to tray)" Toggled="StartMinimized_Toggled" />
+                        <ToggleSwitch x:Name="NotifyPromptsToggle" Header="Notify on prompts" Toggled="NotifyPref_Toggled" Tag="prompt" />
+                        <ToggleSwitch x:Name="NotifyAlertsToggle" Header="Notify on alerts" Toggled="NotifyPref_Toggled" Tag="alert" />
+                        <Button Content="Open metrics panel" Click="Metrics_Click" />
+                        <ToggleSwitch x:Name="AutostartToggle" Header="Start with Windows (to tray)" Toggled="Autostart_Toggled" />
+                        <Button Content="Unpair this device" Click="Unpair_Click" />
+                        <Button Content="Back" Click="SettingsBack_Click" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <TextBlock Grid.Row="2" x:Name="StatusBar" Padding="12,6" Opacity="0.7" FontSize="12" />
+    </Grid>
+</Window>

@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>DocaDesk.Core</RootNamespace>
+    <AssemblyName>DocaDesk.Core</AssemblyName>
+    <Description>Doca Client Protocol v1 models, HTTP client, credentials, push cursor — no UI.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.9" />
+  </ItemGroup>
+
+</Project>

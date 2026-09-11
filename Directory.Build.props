@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors Condition="'$(MSBuildProjectName)' == 'DocaDesk.Core'">true</TreatWarningsAsErrors>
+    <Authors>Doca</Authors>
+    <Product>DocaDesk</Product>
+    <Company>Doca</Company>
+  </PropertyGroup>
+</Project>

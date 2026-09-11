@@ -56,3 +56,15 @@ appsettings.Local.json
 # OS
 Thumbs.db
 desktop.ini
+
+# Agent loop runtime
+.agent/*.pid
+.agent/e2e-token.json
+.agent/*-token*.json
+.agent/e2e-media.json
+.agent/pair-*.json
+.agent/agent-*.json
+.agent/e2e-agent-token.json
+.agent/mcp-*-url.txt
+.agent/mcp-reg-*.json
+.agent/harness-chat-sse.txt
