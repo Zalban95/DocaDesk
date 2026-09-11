@@ -1,0 +1,58 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+*.binlog
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+.packages/
+
+# MSIX / packaging output
+AppPackages/
+BundleArtifacts/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.appxupload
+*.msixupload
+GeneratedArtifacts/
+_Pvt_Extensions/
+
+# Signing material — never commit one of these
+*.pfx
+*.snk
+*.p12
+
+# Test and coverage
+[Tt]est[Rr]esult*/
+coverage/
+*.coverage
+*.coveragexml
+
+# Local secrets and dev state. The pairing token lives in DPAPI-protected
+# storage under %LOCALAPPDATA%, not in the repo, but a stray appsettings with a
+# host and a token in it is the easy mistake.
+appsettings.Development.json
+appsettings.Local.json
+*.local.json
+.env
+
+# OS
+Thumbs.db
+desktop.ini
