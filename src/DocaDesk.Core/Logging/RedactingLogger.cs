@@ -14,7 +14,7 @@ public interface IDocaLogger
 public sealed class RedactingLogger : IDocaLogger
 {
     private readonly Action<string> _sink;
-    private static readonly Regex Bearer = new(@"Bearer\s+doca_[A-Za-z0-9_.\-]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex Bearer = new(@"Bearer\s+\S+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex TokenLiteral = new(@"\bdoca_[A-Za-z0-9]+\.[A-Za-z0-9_\-]+\b", RegexOptions.Compiled);
     private static readonly Regex McpPath = new(@"(/mcp/)[A-Za-z0-9_\-]{16,}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 

@@ -37,6 +37,20 @@ public sealed class ToolConsent
     public bool IsEnabled(string name) => _enabled.TryGetValue(name, out var v) && v;
     public void Set(string name, bool on) { if (_enabled.ContainsKey(name)) _enabled[name] = on; }
     public IReadOnlyDictionary<string, bool> Snapshot() => new Dictionary<string, bool>(_enabled);
+
+    /// <summary>
+    /// Announce a tool that did not exist when this was built — the tools of a
+    /// local MCP server appear when it starts. <see cref="Set"/> ignores an
+    /// unknown name on purpose, so a dynamic tool has to be registered before
+    /// the user can flip it.
+    /// </summary>
+    public void Register(string name, bool enabled)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _enabled[name] = enabled;
+    }
+
+    public void Remove(string name) => _enabled.Remove(name);
 }
 
 public sealed class McpListenerOptions
@@ -46,9 +60,21 @@ public sealed class McpListenerOptions
     public int Port { get; set; } = 8742;
     public string? AllowedRemoteHost { get; set; }
     public bool AllowLoopback { get; set; }
+    /// <summary>When set and <see cref="EnforceBearer"/> is true, require Authorization: Bearer …</summary>
+    public string? RequiredBearerToken { get; set; }
+    /// <summary>False until the host is known to send the header (addendum §3.4).</summary>
+    public bool EnforceBearer { get; set; }
     public ToolConsent Consent { get; set; } = new();
     public AuditLog? Audit { get; set; }
     public IReadOnlyList<IMcpTool> Tools { get; set; } = Array.Empty<IMcpTool>();
+    /// <summary>
+    /// Tools that come and go — the ones a local MCP server contributes while it
+    /// is running. Asked on every list and every call, because a stopped server
+    /// has to stop appearing.
+    /// </summary>
+    public Func<IReadOnlyList<IMcpTool>>? DynamicTools { get; set; }
+    /// <summary>A tool that never answers must not hold the request open forever.</summary>
+    public TimeSpan ToolCallTimeout { get; set; } = TimeSpan.FromSeconds(120);
 }
 
 /// <summary>
@@ -63,6 +89,11 @@ public sealed class McpHttpListener : IAsyncDisposable
     public bool IsRunning => _server?.IsRunning == true;
     public string? BoundUrl { get; private set; }
     public string? LastError { get; private set; }
+
+    /// <summary>Flip bearer enforcement on a live listener once the host has the header.</summary>
+    public void SetEnforceBearer(bool enforce) => _opt.EnforceBearer = enforce;
+
+    public bool EnforceBearer => _opt.EnforceBearer;
 
     public McpHttpListener(McpListenerOptions options) => _opt = options;
 
@@ -146,6 +177,17 @@ public sealed class McpHttpListener : IAsyncDisposable
         if (!string.Equals(req.Path, expected, StringComparison.Ordinal))
             return new HttpResponse(404, "text/plain", "not found");
 
+        if (_opt.EnforceBearer && !string.IsNullOrEmpty(_opt.RequiredBearerToken))
+        {
+            if (!req.Headers.TryGetValue("Authorization", out var auth) ||
+                !auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(auth["Bearer ".Length..].Trim(), _opt.RequiredBearerToken, StringComparison.Ordinal))
+            {
+                // Same shape as a wrong path — do not confirm the path was right.
+                return new HttpResponse(404, "text/plain", "not found");
+            }
+        }
+
         if (!string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase))
             return new HttpResponse(405, "text/plain", "POST only");
 
@@ -219,8 +261,14 @@ public sealed class McpHttpListener : IAsyncDisposable
         }
     }
 
+    private IEnumerable<IMcpTool> AllTools()
+    {
+        var dynamic = _opt.DynamicTools?.Invoke() ?? Array.Empty<IMcpTool>();
+        return dynamic.Count == 0 ? _opt.Tools : _opt.Tools.Concat(dynamic);
+    }
+
     private object[] ListTools() =>
-        _opt.Tools.Select(t => (object)new
+        AllTools().Select(t => (object)new
         {
             name = t.Name,
             description = t.Description,
@@ -233,7 +281,7 @@ public sealed class McpHttpListener : IAsyncDisposable
         var name = parameters?["name"]?.GetValue<string>()
             ?? throw new McpRpcException(-32602, "name required");
         var args = parameters?["arguments"];
-        var tool = _opt.Tools.FirstOrDefault(t => t.Name == name)
+        var tool = AllTools().FirstOrDefault(t => t.Name == name)
             ?? throw new McpRpcException(-32601, $"Unknown tool: {name}");
 
         if (!_opt.Consent.IsEnabled(name))
@@ -247,7 +295,18 @@ public sealed class McpHttpListener : IAsyncDisposable
         }
 
         _opt.Audit?.Add("mcp.call", $"tools/call {name}");
-        var result = await tool.CallAsync(args, "http", CancellationToken.None).ConfigureAwait(false);
+        using var deadline = new CancellationTokenSource(_opt.ToolCallTimeout);
+        McpToolResult result;
+        try
+        {
+            result = await tool.CallAsync(args, "http", deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+        {
+            _opt.Audit?.Add("mcp.timeout", $"{name} after {_opt.ToolCallTimeout.TotalSeconds:0.#}s");
+            result = new McpToolResult { IsError = true, Text = $"Error: '{name}' timed out after {_opt.ToolCallTimeout.TotalSeconds:0.#}s." };
+        }
+
         return new
         {
             content = new[] { new { type = "text", text = result.Text } },

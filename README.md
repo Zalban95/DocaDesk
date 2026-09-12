@@ -22,7 +22,7 @@ in one click.**
 Milestones **M1–M7 complete** — reports in `.agent/M1_REPORT.md` … `.agent/M1_M7_COMPLETE.md`,
 live notes in `.agent/LIVE_ACCEPTANCE.md`.
 
-**Compatible with Doca server `2.9.0`.**
+**Compatible with Doca server `2.10.0`** (MCP self-registration via `mcp:self` / offer). Older hosts without those endpoints still work for pair/dashboard/push; MCP registration then needs a dashboard paste as in the original brief.
 
 Specification: `.agent/DOCA_DESK_BRIEF.md`.
 

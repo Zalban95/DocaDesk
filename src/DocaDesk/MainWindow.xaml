@@ -68,19 +68,33 @@
                         <TextBlock Text="Everything starts off. The agent cannot use a tool until you switch it on here (independent of the dashboard)."
                                    TextWrapping="WrapWholeWords" Opacity="0.75" />
                         <ToggleSwitch x:Name="McpListenerToggle" Header="MCP listener (off by default)" Toggled="McpListener_Toggled" />
-                        <TextBox x:Name="McpUrlBox" Header="Listener URL (paste into dashboard → MCP → Transport: http → Runs on: a paired client)"
+                        <TextBlock x:Name="McpRegStatus" TextWrapping="WrapWholeWords" Opacity="0.85" />
+                        <TextBox x:Name="McpUrlBox" Header="Listener URL (offered/patched to DOCA automatically when the listener starts)"
                                  IsReadOnly="True" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="Copy URL" Click="McpCopy_Click" />
                             <Button Content="Regenerate secret" Click="McpRegen_Click" />
                         </StackPanel>
-                        <TextBlock Text="Registration: dashboard → MCP tab → add server → Transport: http → paste URL → Runs on: a paired client → pick this device. Tool list is stable; refresh Tools in the dashboard after changes."
+                        <TextBlock Text="DOCA 2.10+: starting the listener offers or re-addresses your server (mcp:self). A human still accepts the first offer in the dashboard under “On a paired client”. Host start/stop requests respect this master switch and tool consent."
                                    TextWrapping="WrapWholeWords" Opacity="0.75" FontSize="12" />
                         <ToggleSwitch x:Name="ToolListWindows" Header="list_windows (read)" Toggled="ToolConsent_Toggled" Tag="list_windows" />
                         <ToggleSwitch x:Name="ToolScreenshot" Header="screenshot (read)" Toggled="ToolConsent_Toggled" Tag="screenshot" />
                         <ToggleSwitch x:Name="ToolGetClip" Header="get_clipboard_text (read)" Toggled="ToolConsent_Toggled" Tag="get_clipboard_text" />
                         <ToggleSwitch x:Name="ToolSetClip" Header="set_clipboard_text (write)" Toggled="ToolConsent_Toggled" Tag="set_clipboard_text" />
                         <ToggleSwitch x:Name="ToolOpenUrl" Header="open_url (write)" Toggled="ToolConsent_Toggled" Tag="open_url" />
+
+                        <TextBlock Text="MCP servers on this PC" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
+                        <TextBlock Text="Servers DocaDesk runs here and forwards to DOCA, so an agent on any device can use them. A server's tools reach the agent only while it is running and allowed. Only you can add one — nothing arriving over the wire can."
+                                   TextWrapping="WrapWholeWords" Opacity="0.75" />
+                        <StackPanel x:Name="LocalMcpRows" Spacing="8" />
+                        <TextBlock x:Name="LocalMcpEmpty" Text="None yet. Add one below — for example command “npx” with arguments “-y” and “@modelcontextprotocol/server-filesystem” and a folder."
+                                   TextWrapping="WrapWholeWords" Opacity="0.6" FontSize="12" />
+                        <TextBox x:Name="LocalMcpIdBox" Header="Id (a–z, 0–9, hyphen)" PlaceholderText="filesystem" />
+                        <TextBox x:Name="LocalMcpCommandBox" Header="Command" PlaceholderText="npx" />
+                        <TextBox x:Name="LocalMcpArgsBox" Header="Arguments (one per line)" AcceptsReturn="True"
+                                 TextWrapping="Wrap" Height="76" />
+                        <TextBlock x:Name="LocalMcpError" Foreground="DarkRed" TextWrapping="WrapWholeWords" Visibility="Collapsed" />
+                        <Button Content="Add server" Click="LocalMcpAdd_Click" />
 
                         <TextBlock Text="Audit (recent)" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
                         <ListView x:Name="AuditList" MaxHeight="180" />

@@ -232,6 +232,50 @@ public sealed class DocaClient : IAsyncDisposable
             throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
     }
 
+    /// <summary>GET /api/v1/mcp/self — null when 404 (no accepted server for this device).</summary>
+    public async Task<McpServerView?> GetMcpSelfAsync(CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/v1/mcp/self");
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (res.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+        return DocaJson.Deserialize<McpSelfResponse>(text)?.Server;
+    }
+
+    public async Task<McpServerView> PatchMcpSelfAsync(McpSelfPatchRequest body, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/mcp/self")
+        {
+            Content = new StringContent(DocaJson.Serialize(body), Encoding.UTF8, "application/json"),
+        };
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+        return DocaJson.Deserialize<McpSelfResponse>(text)?.Server
+            ?? throw new UnexpectedServerException("Empty mcp/self patch response");
+    }
+
+    public async Task<McpOfferView> OfferMcpAsync(McpOfferRequest body, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/mcp/offer")
+        {
+            Content = new StringContent(DocaJson.Serialize(body), Encoding.UTF8, "application/json"),
+        };
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+        return DocaJson.Deserialize<McpOfferResponse>(text)?.Offer
+            ?? throw new UnexpectedServerException("Empty mcp/offer response");
+    }
+
     public async Task<MediaUploadResponse> UploadMediaAsync(
         Stream content,
         string fileName,

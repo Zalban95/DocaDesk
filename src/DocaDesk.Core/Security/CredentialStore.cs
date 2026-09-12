@@ -96,6 +96,7 @@ public static class CredentialKeys
 {
     public const string DeviceToken = "device.token";
     public const string McpPathSecret = "mcp.path.secret";
+    public const string McpBearerToken = "mcp.bearer.token";
     public const string CertPinSha256 = "tls.pin.sha256";
     public const string ServerUrl = "server.url";
 }
