@@ -268,22 +268,31 @@ public sealed partial class MainWindow : Window
         if (_session is null) return;
         try
         {
-            _dashboard ??= new DashboardHost(DashboardView);
-            _dashboard.NavigationFailed += msg => DispatcherQueue.TryEnqueue(() =>
+            // `??=` guarded the object but not the subscriptions, and this runs
+            // on every session change. DashboardHost never unsubscribes, so the
+            // two handler lists grew by one on every reconnect — and worse,
+            // NavigateHome() ran again each time, throwing the user back to the
+            // dashboard root mid-task because the network blinked. Build it once
+            // or not at all.
+            if (_dashboard is null)
             {
-                ShowOnly(status: true);
-                StatusTitle.Text = "Dashboard offline";
-                StatusBody.Text = msg;
-                StatusRetryBtn.Visibility = Visibility.Visible;
-                StatusUnpairBtn.Visibility = Visibility.Collapsed;
-            });
-            _dashboard.NavigationSucceeded += () => DispatcherQueue.TryEnqueue(() =>
-            {
-                if (_session?.State == SessionState.Paired && !_settingsOpen)
-                    ShowOnly(dashboard: true);
-            });
-            await _dashboard.InitializeAsync(new Uri(_session.ServerUrl));
-            _dashboard.NavigateHome();
+                _dashboard = new DashboardHost(DashboardView);
+                _dashboard.NavigationFailed += msg => DispatcherQueue.TryEnqueue(() =>
+                {
+                    ShowOnly(status: true);
+                    StatusTitle.Text = "Dashboard offline";
+                    StatusBody.Text = msg;
+                    StatusRetryBtn.Visibility = Visibility.Visible;
+                    StatusUnpairBtn.Visibility = Visibility.Collapsed;
+                });
+                _dashboard.NavigationSucceeded += () => DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_session?.State == SessionState.Paired && !_settingsOpen)
+                        ShowOnly(dashboard: true);
+                });
+                await _dashboard.InitializeAsync(new Uri(_session.ServerUrl));
+                _dashboard.NavigateHome();
+            }
             TitleText.Text = "DocaDesk";
         }
         catch (Exception ex)

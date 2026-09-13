@@ -212,10 +212,23 @@ public sealed class AppSession : IAsyncDisposable
             Client = _client,
             CursorStore = _cursor,
             Logger = _log,
+            // Await every subscriber, not just the last one.
+            //
+            // Invoking a multicast delegate runs all the handlers but hands back
+            // only the final one's Task. There are two — McpHost subscribes
+            // first, PromptCoordinator second — so McpHost's work was
+            // fire-and-forget: an mcp.listener "stop" could be acked and the
+            // cursor advanced while the listener was still accepting requests,
+            // and anything it threw vanished into an unobserved task with no log
+            // line. Sequential rather than WhenAll on purpose: these handlers
+            // touch UI state and the order they were registered in is the order
+            // they have always run in.
             OnEvent = async (ev, token) =>
             {
-                if (EventReceived is not null)
-                    await EventReceived(ev, token).ConfigureAwait(false);
+                var handler = EventReceived;
+                if (handler is null) return;
+                foreach (var one in handler.GetInvocationList())
+                    await ((Func<EventEnvelope, CancellationToken, Task>)one)(ev, token).ConfigureAwait(false);
             },
             OnResync = async (_, token) =>
             {

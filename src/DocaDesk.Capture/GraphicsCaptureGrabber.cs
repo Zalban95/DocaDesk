@@ -110,7 +110,10 @@ public sealed class GraphicsCaptureGrabber : IDisposable
                 using var frame = sender.TryGetNextFrame();
                 if (frame is null) return;
                 var bmp = CopySurfaceToBitmap(frame.Surface, frame.ContentSize);
-                tcs.TrySetResult(bmp);
+                // The pool keeps delivering until the finally below unsubscribes,
+                // so every frame after the first found the result already set and
+                // dropped a full-size Bitmap on the floor.
+                if (!tcs.TrySetResult(bmp)) bmp.Dispose();
             }
             catch (Exception ex)
             {
@@ -144,7 +147,35 @@ public sealed class GraphicsCaptureGrabber : IDisposable
         }
     }
 
+    /// <summary>
+    /// Serialises every use of the immediate context.
+    ///
+    /// `_context` is the device's ID3D11DeviceContext, created once and shared by
+    /// the single ScreenCapturer the app holds. It is explicitly not
+    /// thread-safe — and this method runs on a free-threaded frame-arrived
+    /// callback (the pool is created with CreateFreeThreaded), so two concurrent
+    /// screenshots interleave CopyResource/Map/Unmap on it. The mild outcome is
+    /// one capture returning the other's pixels; the real one is
+    /// DXGI_ERROR_DEVICE_REMOVED, after which _grabberInitTried keeps handing
+    /// back the dead grabber and every capture silently falls through to GDI for
+    /// the life of the process.
+    ///
+    /// The lock belongs here rather than around the capture as a whole: this is
+    /// where the shared object is touched, it holds for a copy rather than for a
+    /// multi-second wait, and a future caller of this method is covered by it
+    /// without having to know why.
+    /// </summary>
+    private readonly object _contextGate = new();
+
     private Bitmap CopySurfaceToBitmap(IDirect3DSurface surface, SizeInt32 contentSize)
+    {
+        lock (_contextGate)
+        {
+            return CopySurfaceToBitmapCore(surface, contentSize);
+        }
+    }
+
+    private Bitmap CopySurfaceToBitmapCore(IDirect3DSurface surface, SizeInt32 contentSize)
     {
         var texPtr = CaptureInterop.GetDxgiInterface(surface, Id3D11Texture2D);
         using var texture = new ID3D11Texture2D(texPtr);
