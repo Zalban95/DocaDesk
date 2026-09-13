@@ -171,10 +171,29 @@ public sealed class LocalMcpRegistry : IAsyncDisposable
         }
 
         var client = new McpStdioClient(spec.Id, spec.Command, spec.Args, spec.WorkingDirectory, _callTimeout);
+
+        // Whatever this replaces has to be stopped, not just dropped. The guard
+        // used to cover Running only, so a client still in its handshake was
+        // overwritten and forgotten — nothing held it any more, so StopAsync,
+        // StopAllAsync and DisposeAsync could never reach it and its child
+        // process outlived the app. Two overlapping starts (a listener toggle
+        // racing an mcp.listener push, or --mcp autostart racing either) left an
+        // orphan holding the port the next attempt needed, reported to the user
+        // as "did not start".
+        McpStdioClient? displaced = null;
         lock (_gate)
         {
-            if (_clients.TryGetValue(id, out var existing) && existing.State == McpServerState.Running) return true;
+            if (_clients.TryGetValue(id, out var existing))
+            {
+                if (existing.State is McpServerState.Running or McpServerState.Starting) return true;
+                displaced = existing;
+            }
             _clients[id] = client;
+        }
+        if (displaced is not null)
+        {
+            try { await displaced.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception ex) { _audit?.Add("mcp.local.replace.fail", $"{id}: {ex.Message}"); }
         }
 
         try
@@ -242,11 +261,66 @@ public sealed class LocalMcpRegistry : IAsyncDisposable
         return tools;
     }
 
+    /// <summary>
+    /// The name one tool is presented under, <c>&lt;serverId&gt;__&lt;tool&gt;</c>,
+    /// shortened to fit the budget without ever becoming another tool's name.
+    ///
+    /// Plain truncation was the bug. Blender's server offers
+    /// <c>get_blendfile_summary_datablock_counts</c> and
+    /// <c>get_blendfile_summary_missing_files</c> among others: they share more
+    /// than forty characters of prefix, so five pairs arrived here as five
+    /// identical names. The listener resolves a call with
+    /// <c>FirstOrDefault(t =&gt; t.Name == name)</c>, so one of each pair answered
+    /// for both and its twin could not be called at all — and
+    /// <see cref="RegisterConsent"/> registered one key for the two of them, so
+    /// allowing one allowed both. Observed against the real server, not imagined.
+    ///
+    /// The fix is a suffix derived from the full name rather than from its
+    /// position in a list. That matters more than it looks: a de-duplicating pass
+    /// numbering collisions <c>_2</c>, <c>_3</c> by the order tools arrive would
+    /// hand the same name to a different tool when the server's list changes, and
+    /// a consent the user granted to one would quietly become a consent for
+    /// another. Hashing the full name keeps every tool's identity its own — the
+    /// same tool is named the same thing on every machine, in every process, and
+    /// after any restart.
+    ///
+    /// Names that already fit are untouched, so this only renames the tools that
+    /// were broken. Their consent entries and any Doca-side "switched off" list
+    /// refer to the old truncated name and will need granting once more, which is
+    /// the price of them having been two tools under one name.
+    /// </summary>
     public static string ProxiedName(string serverId, string toolName)
     {
         var slug = new string(toolName.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_').ToArray());
         var name = $"{serverId}__{slug}";
-        return name.Length <= MaxProxiedNameLength ? name : name[..MaxProxiedNameLength];
+        if (name.Length <= MaxProxiedNameLength) return name;
+
+        var suffix = "_" + ShortHash(name);
+        return name[..(MaxProxiedNameLength - suffix.Length)] + suffix;
+    }
+
+    /// <summary>
+    /// Six hex characters of FNV-1a over the full name.
+    ///
+    /// Not for security — for identity. It has to be the same everywhere and
+    /// forever, which rules out <see cref="string.GetHashCode()"/>: .NET
+    /// randomises that per process, so a name built from it would change on every
+    /// restart and take the consent list with it.
+    /// </summary>
+    private static string ShortHash(string value)
+    {
+        unchecked
+        {
+            const uint offsetBasis = 2166136261;
+            const uint prime = 16777619;
+            var hash = offsetBasis;
+            foreach (var b in System.Text.Encoding.UTF8.GetBytes(value))
+            {
+                hash ^= b;
+                hash *= prime;
+            }
+            return hash.ToString("x8")[..6];
+        }
     }
 
     private McpStdioClient? Client(string id)

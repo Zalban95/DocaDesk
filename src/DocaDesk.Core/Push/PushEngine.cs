@@ -150,9 +150,20 @@ public sealed class PushEngine : IAsyncDisposable
         var parser = new SseParser();
         _watchdog.MarkTraffic();
 
+        // The read has to outlive the iteration. The one-second wake-up exists to
+        // let the watchdog fire between lines, and a heartbeat arrives roughly
+        // every 25s — so the timer wins on nearly every pass. Starting a fresh
+        // ReadLineAsync each time meant calling it while the previous one was
+        // still pending, which StreamReader answers with "the stream is
+        // currently in use by a previous operation". That exception was caught
+        // upstream as "SSE failed, falling back to JSON poll", so the engine
+        // reconnected, died again a second later, and spent its life opening
+        // streams: push was poll-only and nothing said so.
+        Task<string?>? readTask = null;
+
         while (!ct.IsCancellationRequested)
         {
-            var readTask = reader.ReadLineAsync(ct).AsTask();
+            readTask ??= reader.ReadLineAsync(ct).AsTask();
             var delayTask = Task.Delay(TimeSpan.FromSeconds(1), ct);
             var finished = await Task.WhenAny(readTask, delayTask).ConfigureAwait(false);
             if (_watchdog.IsExpired)
@@ -162,6 +173,7 @@ public sealed class PushEngine : IAsyncDisposable
                 continue;
 
             var line = await readTask.ConfigureAwait(false);
+            readTask = null;
             if (line is null)
                 throw new EndOfStreamException("SSE stream ended");
 

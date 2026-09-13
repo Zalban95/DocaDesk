@@ -74,6 +74,21 @@ public sealed class SimpleHttpServer : IAsyncDisposable
         }
     }
 
+    /// <summary>A declared body larger than this is refused before it is read.</summary>
+    private const int MaxBodyBytes = 8 * 1024 * 1024;
+
+    private static async Task WriteAsync(Stream stream, int status, string contentType, string body, CancellationToken ct)
+    {
+        var payload = Encoding.UTF8.GetBytes(body);
+        var header =
+            $"HTTP/1.1 {status} {(status == 200 ? "OK" : "ERR")}\r\n" +
+            $"Content-Type: {contentType}\r\n" +
+            $"Content-Length: {payload.Length}\r\n" +
+            "Connection: close\r\n\r\n";
+        await stream.WriteAsync(Encoding.UTF8.GetBytes(header), ct).ConfigureAwait(false);
+        await stream.WriteAsync(payload, ct).ConfigureAwait(false);
+    }
+
     private async Task ServeAsync(TcpClient client, CancellationToken ct)
     {
         try
@@ -101,29 +116,45 @@ public sealed class SimpleHttpServer : IAsyncDisposable
             string body = "";
             if (headers.TryGetValue("Content-Length", out var cl) && int.TryParse(cl, out var len) && len > 0)
             {
-                var buf = new char[len];
-                var read = 0;
-                while (read < len)
+                // Content-Length counts BYTES; ReadAsync returns decoded CHARS.
+                // Every multi-byte character makes the char count smaller than
+                // the byte count, so the old `while (read < len)` could never be
+                // satisfied — it waited for characters the client had already
+                // finished sending and was now waiting on a reply for. One
+                // accented letter anywhere in a tool argument hung the request
+                // until the far end gave up, with no audit entry, because the
+                // handler was never reached. Count bytes, decode chars.
+                //
+                // The reader is kept rather than switching to the raw stream: it
+                // is buffered, so it has almost certainly pulled the first bytes
+                // of the body already, and reading the stream directly here
+                // would silently lose them.
+                if (len > MaxBodyBytes)
                 {
-                    var n = await reader.ReadAsync(buf.AsMemory(read, len - read), ct).ConfigureAwait(false);
-                    if (n <= 0) break;
-                    read += n;
+                    await WriteAsync(stream, 413, "text/plain", "Request body too large.", ct).ConfigureAwait(false);
+                    return;
                 }
-                body = new string(buf, 0, read);
+
+                var sb = new StringBuilder();
+                var buf = new char[4096];
+                var bytes = 0;
+                while (bytes < len)
+                {
+                    // Never ask for more chars than there are bytes left: one
+                    // char is at least one byte, so this cannot overshoot.
+                    var want = Math.Min(buf.Length, len - bytes);
+                    var n = await reader.ReadAsync(buf.AsMemory(0, want), ct).ConfigureAwait(false);
+                    if (n <= 0) break;
+                    sb.Append(buf, 0, n);
+                    bytes += Encoding.UTF8.GetByteCount(buf, 0, n);
+                }
+                body = sb.ToString();
             }
 
             var remote = (client.Client.RemoteEndPoint as IPEndPoint)?.Address;
             var req = new HttpRequest(method, path, headers, body, remote);
             var res = await _handler(req).ConfigureAwait(false);
-            var payload = Encoding.UTF8.GetBytes(res.Body);
-            var header =
-                $"HTTP/1.1 {res.StatusCode} {(res.StatusCode == 200 ? "OK" : "ERR")}\r\n" +
-                $"Content-Type: {res.ContentType}\r\n" +
-                $"Content-Length: {payload.Length}\r\n" +
-                "Connection: close\r\n\r\n";
-            var headerBytes = Encoding.UTF8.GetBytes(header);
-            await stream.WriteAsync(headerBytes, ct).ConfigureAwait(false);
-            await stream.WriteAsync(payload, ct).ConfigureAwait(false);
+            await WriteAsync(stream, res.StatusCode, res.ContentType, res.Body, ct).ConfigureAwait(false);
         }
         catch
         {

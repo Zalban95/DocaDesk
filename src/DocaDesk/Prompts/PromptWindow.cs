@@ -162,7 +162,12 @@ public sealed class PromptWindow : Window
                     if (latest is null) continue;
                     Bind(latest, _client);
                     var state = latest.State ?? "";
-                    if (state is "outcome_ready" or "confirmed" or "closed" or "dismissed" or "open")
+                    // "open" is the state a prompt is created in (api-v1/prompts.js sets
+            // it at creation and as the per-device default), so treating it as
+            // terminal ended this wait on its first poll — one second after the
+            // 202, the user was left looking at a re-rendered prompt with a
+            // blank status line and no sign that anything was still in flight.
+            if (state is "outcome_ready" or "confirmed" or "closed" or "dismissed")
                     {
                         if (state is "outcome_ready")
                             _status.Text = "Outcome ready — Confirm or Back.";

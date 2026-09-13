@@ -23,9 +23,20 @@ public sealed class McpToolResult
     public string Text { get; init; } = "";
 }
 
+/// <summary>
+/// The consent gate, read from every connection thread and written from the UI.
+///
+/// This was a plain Dictionary. `IsEnabled` runs on a listener thread for every
+/// tools/call while `Register` inserts a server's tools from whichever thread
+/// started it and `Set` writes from the UI — so ticking "Allow its tools" during
+/// a call could be answered from a dictionary mid-resize: a wrong verdict in
+/// either direction, which on a consent gate is the direction that matters, or a
+/// lookup spinning in a broken bucket chain. `Snapshot` enumerating during an
+/// insert threw straight out of the UI refresh.
+/// </summary>
 public sealed class ToolConsent
 {
-    private readonly Dictionary<string, bool> _enabled = new(StringComparer.Ordinal)
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _enabled = new(StringComparer.Ordinal)
     {
         ["list_windows"] = false,
         ["screenshot"] = false,
@@ -50,7 +61,7 @@ public sealed class ToolConsent
         _enabled[name] = enabled;
     }
 
-    public void Remove(string name) => _enabled.Remove(name);
+    public void Remove(string name) => _enabled.TryRemove(name, out _);
 }
 
 public sealed class McpListenerOptions

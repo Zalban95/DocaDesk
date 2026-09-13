@@ -61,15 +61,15 @@ public partial class App : Application
         {
             try
             {
+                // Mcp.Url ends in the listener's path secret, and until the
+                // panel is reached and bearer enforcement is turned on, that
+                // secret is the whole authentication. It is DPAPI-protected in
+                // the credential store and regex-redacted out of every log line;
+                // writing it to %LOCALAPPDATA%\DocaDesk\mcp-url.txt in clear
+                // undid both, and nothing in either repository ever read the
+                // file back. The URL is on screen in the window for anyone who
+                // needs it.
                 await Mcp.StartAsync();
-                if (!string.IsNullOrEmpty(Mcp.Url))
-                {
-                    var urlPath = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "DocaDesk", "mcp-url.txt");
-                    Directory.CreateDirectory(Path.GetDirectoryName(urlPath)!);
-                    await File.WriteAllTextAsync(urlPath, Mcp.Url);
-                }
             }
             catch (Exception ex)
             {

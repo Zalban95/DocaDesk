@@ -243,6 +243,19 @@ public sealed class McpStdioClient : IAsyncDisposable
         catch { return "?"; }
     }
 
+    /// <summary>
+    /// Drain the server's stdout until it stops talking — and say so when it does.
+    ///
+    /// Two ways out of here used to leave the object claiming to be healthy: the
+    /// child closing stdout without exiting (so `Exited` never fires and the
+    /// handler that records it never runs), and any exception that is not a
+    /// JsonException escaping the inner catch — `GetValue&lt;string&gt;()` on a
+    /// `method` or an `error.message` that is not a string throws
+    /// InvalidOperationException, not JsonException. Either way `State` stayed
+    /// `Running`, the panel kept drawing "running · N tools", and every later
+    /// call wrote into a pipe nobody was reading and waited the full call
+    /// timeout. Two minutes per call, and a green light in the UI.
+    /// </summary>
     private async Task ReadStdoutAsync(Process child)
     {
         try
@@ -252,11 +265,23 @@ public sealed class McpStdioClient : IAsyncDisposable
                 var line = await child.StandardOutput.ReadLineAsync().ConfigureAwait(false);
                 if (line is null) break;
                 if (line.Trim().Length == 0) continue;
+                // One malformed message costs one line, not the connection.
                 try { OnMessage(JsonNode.Parse(line)); }
-                catch (JsonException) { Note($"[unparseable line] {Truncate(line, 200)}"); }
+                catch (Exception ex) { Note($"[unreadable line] {ex.Message}: {Truncate(line, 200)}"); }
             }
         }
         catch (Exception ex) { Note($"[stdout] {ex.Message}"); }
+        finally
+        {
+            // Reaching here means this server can no longer answer anything.
+            if (State == McpServerState.Running)
+            {
+                State = McpServerState.Error;
+                LastError ??= "the server stopped writing to stdout";
+                _tools = Array.Empty<McpRemoteTool>();
+            }
+            FailAll("the server stopped writing to stdout");
+        }
     }
 
     private async Task ReadStderrAsync(Process child)

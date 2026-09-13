@@ -265,6 +265,73 @@ public class LocalMcpRegistryTests : IDisposable
         Assert.Equal("fs__read_file", LocalMcpRegistry.ProxiedName("fs", "read/file"));
     }
 
+    /// <summary>
+    /// The real tool list of the Blender MCP server, which is where plain
+    /// truncation stopped being a theory: every one of these is longer than the
+    /// budget and the first five share a prefix well past it.
+    /// </summary>
+    private static readonly string[] BlenderTools =
+    {
+        "get_blendfile_summary_datablock_counts",
+        "get_blendfile_summary_missing_files",
+        "get_blendfile_summary_of_linked_libraries",
+        "get_blendfile_summary_of_linked_libraries_for_cli",
+        "get_blendfile_summary_path_info",
+        "get_blendfile_summary_usage_guess",
+        "get_screenshot_of_window_as_image",
+        "get_screenshot_of_window_as_json",
+        "jump_to_view3d_object_by_name",
+        "jump_to_view3d_object_data_by_name",
+        "execute_blender_code",
+        "execute_blender_code_for_cli",
+    };
+
+    [Fact]
+    public void Two_tools_never_arrive_under_one_name()
+    {
+        var names = BlenderTools.Select(t => LocalMcpRegistry.ProxiedName("blender", t)).ToArray();
+
+        // Every one still fits the budget Doca leaves us...
+        Assert.All(names, n => Assert.True(n.Length <= LocalMcpRegistry.MaxProxiedNameLength, n));
+
+        // ...and no two of them are the same string. Before this, five pairs
+        // collided and one of each pair could not be called at all.
+        Assert.Equal(BlenderTools.Length, names.Distinct(StringComparer.Ordinal).Count());
+
+        // The pair that made it obvious: identical for 40 characters, and the
+        // suffix is the only thing telling them apart.
+        var datablock = LocalMcpRegistry.ProxiedName("blender", "get_blendfile_summary_datablock_counts");
+        var missing   = LocalMcpRegistry.ProxiedName("blender", "get_blendfile_summary_missing_files");
+        Assert.NotEqual(datablock, missing);
+    }
+
+    [Fact]
+    public void A_shortened_name_belongs_to_its_tool_and_not_to_its_position()
+    {
+        // The reason this is a hash of the name and not a _2 appended to a
+        // duplicate: consent is keyed by the proxied name. If the name depended
+        // on what else happened to be in the list, adding or removing an
+        // unrelated tool would move a name onto a different tool, and a consent
+        // the user granted to one would silently become a consent for another.
+        var alone = LocalMcpRegistry.ProxiedName("blender", "get_blendfile_summary_missing_files");
+
+        var crowded = new[] { "aaa", "get_blendfile_summary_datablock_counts", "zzz" }
+            .Concat(BlenderTools)
+            .Select(t => LocalMcpRegistry.ProxiedName("blender", t))
+            .ToArray();
+
+        Assert.Contains(alone, crowded);
+
+        // Same input, same answer, every time — no per-process randomness, so a
+        // restart cannot invalidate a consent list.
+        Assert.Equal(alone, LocalMcpRegistry.ProxiedName("blender", "get_blendfile_summary_missing_files"));
+
+        // And the server id still separates two servers offering one tool name.
+        Assert.NotEqual(
+            LocalMcpRegistry.ProxiedName("blender", "get_blendfile_summary_missing_files"),
+            LocalMcpRegistry.ProxiedName("blendr",  "get_blendfile_summary_missing_files"));
+    }
+
     /* ── Plumbing ──────────────────────────────────────── */
 
     private LocalMcpRegistry NewRegistry(out ToolConsent consent, TimeSpan? callTimeout = null)
