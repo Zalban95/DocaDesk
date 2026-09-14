@@ -268,7 +268,17 @@ public sealed class McpHttpListener : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return Err(id, -32603, ex.Message);
+            // Keeping only ex.Message discards the one thing that identifies an
+            // unexpected failure — and some exceptions carry no message at all.
+            // A clipboard call once reached the agent as
+            // {"code":-32603,"message":""}: an internal error stating nothing,
+            // which cannot be diagnosed from either end. The type is always
+            // there, so say it, and put the whole exception somewhere readable.
+            var why = string.IsNullOrWhiteSpace(ex.Message)
+                ? $"{ex.GetType().Name} (no message)"
+                : $"{ex.GetType().Name}: {ex.Message}";
+            _opt.Audit?.Add("mcp.error", $"{method}: {why}", detail: ex.ToString());
+            return Err(id, -32603, why);
         }
     }
 

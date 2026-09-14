@@ -134,6 +134,44 @@ file sealed class ScreenshotTool : IMcpTool
     }
 }
 
+/// <summary>
+/// Reaching the Windows clipboard from a connection thread.
+///
+/// Every tool call arrives on a threadpool thread created per connection by
+/// SimpleHttpServer — MTA, no dispatcher. The WinRT clipboard APIs want the UI
+/// (STA) thread, and the rest of this app knows it: PromptCoordinator marshals
+/// through App.UiDispatcher, and MainWindow's own clipboard calls are already on
+/// the UI thread. These two tools were the only ones that were not, which is why
+/// they failed for the agent while working perfectly from the window.
+///
+/// The failure was invisible on top of that: neither tool had a try/catch, so
+/// the exception escaped to the listener's generic handler, which keeps only
+/// `ex.Message` — and this one's was empty. The agent received
+/// `{"code":-32603,"message":""}`: an internal error that says nothing, from a
+/// call that never reached the clipboard at all.
+/// </summary>
+file static class ClipboardUi
+{
+    public static Task<T> RunAsync<T>(Func<Task<T>> work)
+    {
+        var dispatcher = App.UiDispatcher;
+        if (dispatcher is null)
+            throw new InvalidOperationException(
+                "DocaDesk has no UI thread available, so the clipboard cannot be reached.");
+        if (dispatcher.HasThreadAccess) return work();
+
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!dispatcher.TryEnqueue(async () =>
+            {
+                try { tcs.TrySetResult(await work().ConfigureAwait(false)); }
+                catch (Exception ex) { tcs.TrySetException(ex); }
+            }))
+            throw new InvalidOperationException(
+                "The DocaDesk UI thread refused the clipboard request (is the window closing?).");
+        return tcs.Task;
+    }
+}
+
 file sealed class GetClipboardTool : IMcpTool
 {
     private readonly AuditLog _audit;
@@ -146,11 +184,26 @@ file sealed class GetClipboardTool : IMcpTool
     public async Task<McpToolResult> CallAsync(JsonNode? args, string sessionId, CancellationToken ct)
     {
         _audit.Add("clipboard.read", "get_clipboard_text", sessionId);
-        var dp = Clipboard.GetContent();
-        if (!dp.Contains(StandardDataFormats.Text))
-            return new McpToolResult { Text = "" };
-        var text = await dp.GetTextAsync();
-        return new McpToolResult { Text = text };
+        try
+        {
+            return await ClipboardUi.RunAsync(async () =>
+            {
+                var dp = Clipboard.GetContent();
+                // Not an error: a clipboard holding an image or files has no
+                // text for a text-only reader, and "" says that plainly.
+                if (!dp.Contains(StandardDataFormats.Text))
+                    return new McpToolResult { Text = "" };
+                return new McpToolResult { Text = await dp.GetTextAsync() };
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Same shape as ScreenshotTool: a tool that failed reports it as a
+            // tool result the caller can read, not as a protocol-level error.
+            var why = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+            _audit.Add("clipboard.read.fail", why, sessionId);
+            return new McpToolResult { IsError = true, Text = $"Could not read the clipboard: {why}" };
+        }
     }
 }
 
@@ -171,14 +224,26 @@ file sealed class SetClipboardTool : IMcpTool
         ["required"] = new JsonArray("text"),
     };
 
-    public Task<McpToolResult> CallAsync(JsonNode? args, string sessionId, CancellationToken ct)
+    public async Task<McpToolResult> CallAsync(JsonNode? args, string sessionId, CancellationToken ct)
     {
         var text = args?["text"]?.GetValue<string>() ?? "";
         _audit.Add("clipboard.write", "set_clipboard_text", sessionId, detail: $"len={text.Length}");
-        var package = new DataPackage();
-        package.SetText(text);
-        Clipboard.SetContent(package);
-        return Task.FromResult(new McpToolResult { Text = "ok" });
+        try
+        {
+            return await ClipboardUi.RunAsync(() =>
+            {
+                var package = new DataPackage();
+                package.SetText(text);
+                Clipboard.SetContent(package);
+                return Task.FromResult(new McpToolResult { Text = "ok" });
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            var why = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+            _audit.Add("clipboard.write.fail", why, sessionId);
+            return new McpToolResult { IsError = true, Text = $"Could not set the clipboard: {why}" };
+        }
     }
 }
 
