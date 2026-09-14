@@ -15,6 +15,13 @@ DOCA is the authority for the protocol. `d:\doca\doca\DOCA\PROTOCOL.md` is norma
 `.agent/DOCA_DESK_BRIEF.md` plus `.agent/DOCA_DESK_ADDENDUM_MCP.md` are the briefs this repo was
 built from — the addendum supersedes the brief **on MCP registration only**.
 
+**Two sibling clients exist and this repo never mentions them.** `..\DocaMobile` (Android phone,
+Kotlin) and `..\DocaWear` (Wear OS watch, Kotlin) are the other first-party clients of the same
+server, each with its own `AGENTS.md`. They matter here for one reason: DocaDesk is the **only**
+client that hosts an MCP server, so anything about hosting, consent or tool origin is unique to
+this repo and has no counterpart to copy from — while anything about pairing, caps, scopes or the
+push loop has two other implementations to check against before inventing a third answer.
+
 | Project | Contains |
 |---|---|
 | `src\DocaDesk` | The WinUI 3 app: window, tray, WebView2 host, prompt window, notifications, consent UI, settings, and `Services\McpHost.cs` which owns the listener's lifecycle |
@@ -243,6 +250,22 @@ server.
   on a fake clock — no test takes fifty seconds.
 
 ## Environment gotchas (not bugs)
+
+- **Nothing in this repo sets a version.** There is no `<Version>` property anywhere, so every
+  assembly builds as `1.0.0`, while three separate literals each claim `0.1.0`: the listener's
+  `serverInfo.version` (`src\DocaDesk.Mcp\McpHttpListener.cs:238`), `DocaDeskConstants.ClientVersion`
+  (`:7`) and `DocaClient.ClientVersion` (`src\DocaDesk.Core\Net\DocaClient.cs:18`). DOCA next door
+  bumps `package.json` and tags every release; this repo has never had a release number at all. It
+  is one property and three literals — pick the number first, then change all four in one commit,
+  because a half-done version is worse than none.
+- **You cannot get a shell on the machine this is built on, and that is not a broken setup.** The
+  repo lives at `D:\doca\DocaDesk` on the Windows host `portal`. Mounting `D:\` into an agent
+  workspace has been broken since a Windows update on 2026-09-08, so the loop that works is: write
+  the files through the bridge's file-commit tool, leave a `.cmd` wrapper in `D:\doca\` that
+  redirects **all** of its output to a log file, have it double-clicked, then read the log back.
+  `build3.cmd` is the current shape and closes the running app first for the reason above; copy it
+  rather than starting a new one. A wrapper printing to a console nobody can read has verified
+  nothing, and a build whose log you never read is a build you are guessing about.
 
 - **The listener needs a Tailscale IPv4 and refuses to start without one.** With Tailscale down,
   flipping the toggle throws and the UI reads "No Tailscale IPv4 found. Connect Tailscale before
