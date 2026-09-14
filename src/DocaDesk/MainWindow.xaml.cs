@@ -471,6 +471,45 @@ public sealed partial class MainWindow : Window
         win.Activate();
     }
 
+    /* ── Title bar ────────────────────────────────────────
+       ExtendsContentIntoTitleBar hands us the whole top strip, caption buttons
+       included: they are drawn by the system over our content and we are the
+       ones who have to stay out of their way.  Two things follow from that.
+       SetTitleBar names the part of the strip that drags the window — without
+       it the window cannot be moved by its title — and it must be an element
+       with nothing interactive in it, because input inside that element goes to
+       the drag handler rather than to the control.  And the caption buttons'
+       width is not a constant: it changes with DPI, with maximise/restore, and
+       it moves to the left edge under RTL.  AppWindow.TitleBar reports it, in
+       physical pixels, so it is divided by the rasterization scale to land in
+       the effective pixels XAML lays out in. */
+
+    private void AppTitleBar_Loaded(object sender, RoutedEventArgs e)
+    {
+        SetTitleBar(TitleDragRegion);
+        ApplyCaptionInset();
+    }
+
+    private void AppTitleBar_SizeChanged(object sender, SizeChangedEventArgs e) => ApplyCaptionInset();
+
+    /// <summary>Keep the toolbar buttons clear of the system caption buttons.</summary>
+    private void ApplyCaptionInset()
+    {
+        try
+        {
+            var scale = AppTitleBar.XamlRoot?.RasterizationScale ?? 1.0;
+            if (scale <= 0) scale = 1.0;
+            // RTL puts the caption buttons on the left; then RightInset is 0 and
+            // the toolbar is already clear, which is the right answer anyway.
+            var inset = Math.Max(AppWindow.TitleBar.RightInset, 0) / scale;
+            RightPaddingColumn.Width = new GridLength(inset);
+        }
+        catch
+        {
+            // No AppWindow (rare, during teardown): leave the last good value.
+        }
+    }
+
     private void Reload_Click(object sender, RoutedEventArgs e) => _dashboard?.Reload();
     private void ZoomIn_Click(object sender, RoutedEventArgs e) => _dashboard?.ZoomIn();
     private void ZoomOut_Click(object sender, RoutedEventArgs e) => _dashboard?.ZoomOut();

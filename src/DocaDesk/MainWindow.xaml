@@ -10,14 +10,28 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Title / toolbar -->
-        <Grid Grid.Row="0" Padding="12,8" Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <!-- Title / toolbar.  The window extends its content into the title bar,
+             so the system minimise/maximise/close buttons float over the top-right
+             corner of this grid.  RightPaddingColumn is widened at runtime to the
+             width they actually occupy (AppWindow.TitleBar.RightInset, which tracks
+             DPI, window state and RTL), which parks our buttons just to their left
+             instead of underneath them. -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48"
+              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              Loaded="AppTitleBar_Loaded" SizeChanged="AppTitleBar_SizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="RightPaddingColumn" Width="0" />
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="TitleText" Text="DocaDesk" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <!-- Drag region: the title and the empty space beside it.  Nothing
+                 clickable goes in here — a control inside the element passed to
+                 SetTitleBar stops receiving input. -->
+            <Grid x:Name="TitleDragRegion" Grid.Column="0" Padding="12,0" Background="Transparent">
+                <TextBlock x:Name="TitleText" Text="DocaDesk" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </Grid>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                        VerticalAlignment="Center" Margin="12,0,12,0">
                 <Button x:Name="ZoomOutBtn" Content="−" Click="ZoomOut_Click" ToolTipService.ToolTip="Zoom out" Width="36" />
                 <Button x:Name="ZoomResetBtn" Content="100%" Click="ZoomReset_Click" ToolTipService.ToolTip="Reset zoom" />
                 <Button x:Name="ZoomInBtn" Content="+" Click="ZoomIn_Click" ToolTipService.ToolTip="Zoom in" Width="36" />
