@@ -87,10 +87,12 @@ public sealed class McpHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// A consented local MCP server counts: a machine may exist to forward one
-    /// filesystem server and never consent to a screenshot.
+    /// A consented local MCP server counts even while it is stopped: a machine
+    /// may exist to forward one filesystem server and never consent to a
+    /// screenshot, and autostart happens after the listener is up.
     /// </summary>
-    public bool AnyToolConsented() => ToolNames.Any(t => _consent.IsEnabled(t)) || _localServers.Tools().Count > 0;
+    public bool AnyToolConsented() =>
+        ToolNames.Any(t => _consent.IsEnabled(t)) || _localServers.List().Any(s => s.Consented);
 
     public async Task StartAsync()
     {
@@ -202,27 +204,23 @@ public sealed class McpHost : IAsyncDisposable
 
             StopWaitPoll();
 
-            var hostUrl = self.Url ?? "";
-            var hostHasAuth = self.Headers is not null &&
-                self.Headers.Keys.Any(k => string.Equals(k, "Authorization", StringComparison.OrdinalIgnoreCase));
-
-            if (!string.Equals(hostUrl, url, StringComparison.Ordinal) || !hostHasAuth)
+            // Always PATCH. GET values are masked, so a rotated bearer looks
+            // identical to a matching one — skipping the write is how a live
+            // listener answers 404 to the host that still holds the old token.
+            self = await client.PatchMcpSelfAsync(new McpSelfPatchRequest
             {
-                self = await client.PatchMcpSelfAsync(new McpSelfPatchRequest
-                {
-                    Url = url,
-                    Headers = headers,
-                }, ct).ConfigureAwait(false);
-                _log.Info("MCP self address/headers patched");
-                _audit.Add("mcp.patch", "Updated host entry for this device");
-            }
+                Url = url,
+                Headers = headers,
+            }, ct).ConfigureAwait(false);
+            _log.Info("MCP self address/headers patched");
+            _audit.Add("mcp.patch", "Updated host entry for this device");
 
             Registration = McpRegistrationState.Registered;
             RegistrationMessage = $"Registered on host as {self.Id ?? self.Label ?? "mcp server"}.";
 
             // Safe to enforce once the host record carries Authorization (§3.4).
             // We do not wait for a live probe from the host; the record is the signal.
-            hostHasAuth = self.Headers is not null &&
+            var hostHasAuth = self.Headers is not null &&
                 self.Headers.Keys.Any(k => string.Equals(k, "Authorization", StringComparison.OrdinalIgnoreCase));
             if (hostHasAuth)
             {

@@ -39,7 +39,7 @@ public partial class App : Application
             || AppPrefs.StartMinimized;
 
         _window = new MainWindow();
-        _tray = new TrayHost(_window);
+        _tray = new TrayHost(_window) { BeforeQuit = () => Mcp.DisposeAsync().AsTask() };
         _window.AttachTray(_tray);
         _window.BindMcp(Mcp);
 

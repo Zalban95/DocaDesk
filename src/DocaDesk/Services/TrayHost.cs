@@ -6,13 +6,17 @@ using Microsoft.UI.Xaml.Input;
 
 namespace DocaDesk.Services;
 
-/// <summary>Tray is the app's real home — close hides; quit is explicit.</summary>
+/// <summary>Tray icon and close policy. X quits unless CloseToTray is on.</summary>
 public sealed class TrayHost : IDisposable
 {
     private readonly Window _window;
     private readonly TaskbarIcon _tray;
     private bool _quitRequested;
     private bool _disposed;
+    private bool _quitting;
+
+    /// <summary>Stop the MCP listener and local servers before the process exits.</summary>
+    public Func<Task>? BeforeQuit { get; set; }
 
     public TrayHost(Window window)
     {
@@ -50,8 +54,14 @@ public sealed class TrayHost : IDisposable
     {
         if (_quitRequested)
             return;
+        if (AppPrefs.CloseToTray)
+        {
+            args.Cancel = true;
+            _window.AppWindow.Hide();
+            return;
+        }
         args.Cancel = true;
-        _window.AppWindow.Hide();
+        Quit();
     }
 
     public void ShowWindow()
@@ -60,9 +70,17 @@ public sealed class TrayHost : IDisposable
         _window.Activate();
     }
 
-    public void Quit()
+    public async void Quit()
     {
+        if (_quitting) return;
+        _quitting = true;
         _quitRequested = true;
+        try
+        {
+            if (BeforeQuit is not null)
+                await BeforeQuit().ConfigureAwait(true);
+        }
+        catch { /* shutting down anyway */ }
         Dispose();
         _window.Close();
         Application.Current?.Exit();

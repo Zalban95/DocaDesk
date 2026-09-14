@@ -101,23 +101,32 @@
                         <TextBlock Text="Servers DocaDesk runs here and forwards to DOCA, so an agent on any device can use them. A server's tools reach the agent only while it is running and allowed. Only you can add one — nothing arriving over the wire can."
                                    TextWrapping="WrapWholeWords" Opacity="0.75" />
                         <StackPanel x:Name="LocalMcpRows" Spacing="8" />
-                        <TextBlock x:Name="LocalMcpEmpty" Text="None yet. Add one below — for example command “npx” with arguments “-y” and “@modelcontextprotocol/server-filesystem” and a folder."
+                        <TextBlock x:Name="LocalMcpEmpty" Text="None yet. Fill the form and press Save — for example command “npx” with arguments “-y” and “@modelcontextprotocol/server-filesystem” and a folder as the working directory."
                                    TextWrapping="WrapWholeWords" Opacity="0.6" FontSize="12" />
                         <TextBox x:Name="LocalMcpIdBox" Header="Id (a–z, 0–9, hyphen)" PlaceholderText="filesystem" />
                         <TextBox x:Name="LocalMcpCommandBox" Header="Command" PlaceholderText="npx" />
                         <TextBox x:Name="LocalMcpArgsBox" Header="Arguments (one per line)" AcceptsReturn="True"
                                  TextWrapping="Wrap" Height="76" />
+                        <TextBox x:Name="LocalMcpCwdBox" Header="Working directory (optional)"
+                                 PlaceholderText="Leave empty to use the default" />
                         <TextBlock x:Name="LocalMcpError" Foreground="DarkRed" TextWrapping="WrapWholeWords" Visibility="Collapsed" />
-                        <Button Content="Add server" Click="LocalMcpAdd_Click" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="LocalMcpSaveBtn" Content="Save server" Click="LocalMcpSave_Click" />
+                            <Button x:Name="LocalMcpCancelBtn" Content="Cancel edit" Click="LocalMcpCancel_Click" Visibility="Collapsed" />
+                        </StackPanel>
 
                         <TextBlock Text="Audit (recent)" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
                         <ListView x:Name="AuditList" MaxHeight="180" />
 
-                        <ToggleSwitch x:Name="StartMinimizedToggle" Header="Start minimized (to tray)" Toggled="StartMinimized_Toggled" />
-                        <ToggleSwitch x:Name="NotifyPromptsToggle" Header="Notify on prompts" Toggled="NotifyPref_Toggled" Tag="prompt" />
-                        <ToggleSwitch x:Name="NotifyAlertsToggle" Header="Notify on alerts" Toggled="NotifyPref_Toggled" Tag="alert" />
+                        <TextBlock Text="This device" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
+                        <ToggleSwitch x:Name="StartMinimizedToggle" Header="Start minimized (to tray)" />
+                        <ToggleSwitch x:Name="CloseToTrayToggle" Header="Close to tray (keep running in the background)" />
+                        <ToggleSwitch x:Name="NotifyPromptsToggle" Header="Notify on prompts" Tag="prompt" />
+                        <ToggleSwitch x:Name="NotifyAlertsToggle" Header="Notify on alerts" Tag="alert" />
+                        <ToggleSwitch x:Name="AutostartToggle" Header="Start with Windows (to tray)" />
+                        <TextBlock x:Name="PrefsSaveStatus" Opacity="0.75" />
+                        <Button x:Name="PrefsSaveBtn" Content="Save settings" Click="PrefsSave_Click" />
                         <Button Content="Open metrics panel" Click="Metrics_Click" />
-                        <ToggleSwitch x:Name="AutostartToggle" Header="Start with Windows (to tray)" Toggled="Autostart_Toggled" />
                         <Button Content="Unpair this device" Click="Unpair_Click" />
                         <Button Content="Back" Click="SettingsBack_Click" />
                     </StackPanel>

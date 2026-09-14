@@ -14,6 +14,7 @@ public sealed partial class MainWindow : Window
     private McpHost? _mcp;
     private bool _settingsOpen;
     private bool _mcpUiSync;
+    private string? _editingServerId;
 
     public MainWindow()
     {
@@ -105,7 +106,14 @@ public sealed partial class MainWindow : Window
     {
         var spec = view.Spec;
         var running = view.State == McpServerState.Running;
-        var panel = new StackPanel { Spacing = 4, Margin = new Thickness(0, 8, 0, 0) };
+        var panel = new StackPanel { Spacing = 4 };
+        var card = new Border
+        {
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 4, 0, 4),
+            CornerRadius = new CornerRadius(6),
+            Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["LayerFillColorDefaultBrush"],
+        };
 
         var state = view.State switch
         {
@@ -170,11 +178,25 @@ public sealed partial class MainWindow : Window
             StatusBar.Text = $"{spec.Id}: log copied";
         };
 
+        var edit = new Button { Content = "Edit" };
+        edit.Click += (_, _) => BeginEditServer(spec);
+
         var remove = new Button { Content = "Remove" };
         remove.Click += async (_, _) =>
         {
             if (_mcp is null) return;
+            var dlg = new ContentDialog
+            {
+                Title = "Remove server",
+                Content = $"Remove “{spec.Id}”? This stops it and deletes the definition.",
+                PrimaryButtonText = "Remove",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = Content.XamlRoot,
+            };
+            if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
             await _mcp.LocalServers.RemoveAsync(spec.Id);
+            if (_editingServerId == spec.Id) ClearServerForm();
             RefreshLocalMcpUi();
         };
 
@@ -182,28 +204,60 @@ public sealed partial class MainWindow : Window
         controls.Children.Add(auto);
         controls.Children.Add(power);
         controls.Children.Add(copyLog);
+        controls.Children.Add(edit);
         controls.Children.Add(remove);
         panel.Children.Add(controls);
-        return panel;
+        card.Child = panel;
+        return card;
     }
 
-    private void LocalMcpAdd_Click(object sender, RoutedEventArgs e)
+    private void BeginEditServer(LocalMcpServerSpec spec)
+    {
+        _editingServerId = spec.Id;
+        LocalMcpIdBox.Text = spec.Id;
+        LocalMcpIdBox.IsEnabled = false;
+        LocalMcpCommandBox.Text = spec.Command;
+        LocalMcpArgsBox.Text = string.Join(Environment.NewLine, spec.Args);
+        LocalMcpCwdBox.Text = spec.WorkingDirectory ?? "";
+        LocalMcpSaveBtn.Content = "Save changes";
+        LocalMcpCancelBtn.Visibility = Visibility.Visible;
+        LocalMcpError.Visibility = Visibility.Collapsed;
+    }
+
+    private void ClearServerForm()
+    {
+        _editingServerId = null;
+        LocalMcpIdBox.Text = "";
+        LocalMcpIdBox.IsEnabled = true;
+        LocalMcpCommandBox.Text = "";
+        LocalMcpArgsBox.Text = "";
+        LocalMcpCwdBox.Text = "";
+        LocalMcpSaveBtn.Content = "Save server";
+        LocalMcpCancelBtn.Visibility = Visibility.Collapsed;
+        LocalMcpError.Visibility = Visibility.Collapsed;
+    }
+
+    private void LocalMcpCancel_Click(object sender, RoutedEventArgs e) => ClearServerForm();
+
+    private async void LocalMcpSave_Click(object sender, RoutedEventArgs e)
     {
         if (_mcp is null) return;
         LocalMcpError.Visibility = Visibility.Collapsed;
         try
         {
-            var id = LocalMcpIdBox.Text.Trim();
-            _mcp.LocalServers.Add(new LocalMcpServerSpec
+            var spec = new LocalMcpServerSpec
             {
-                Id = id,
-                Label = id,
+                Id = LocalMcpIdBox.Text.Trim(),
+                Label = LocalMcpIdBox.Text.Trim(),
                 Command = LocalMcpCommandBox.Text.Trim(),
                 Args = LocalMcpArgsBox.Text.Split('\n').Select(a => a.Trim()).Where(a => a.Length > 0).ToArray(),
-            });
-            LocalMcpIdBox.Text = "";
-            LocalMcpCommandBox.Text = "";
-            LocalMcpArgsBox.Text = "";
+                WorkingDirectory = string.IsNullOrWhiteSpace(LocalMcpCwdBox.Text) ? null : LocalMcpCwdBox.Text.Trim(),
+            };
+            if (_editingServerId is { } id)
+                await _mcp.LocalServers.UpdateAsync(id, spec);
+            else
+                _mcp.LocalServers.Add(spec);
+            ClearServerForm();
             RefreshLocalMcpUi();
         }
         catch (Exception ex)
@@ -378,25 +432,28 @@ public sealed partial class MainWindow : Window
         _settingsOpen = true;
         AutostartToggle.IsOn = Autostart.IsEnabled();
         StartMinimizedToggle.IsOn = AppPrefs.StartMinimized;
+        CloseToTrayToggle.IsOn = AppPrefs.CloseToTray;
         NotifyPromptsToggle.IsOn = AppPrefs.NotifyPrompts;
         NotifyAlertsToggle.IsOn = AppPrefs.NotifyAlerts;
+        PrefsSaveStatus.Text = "";
         ShowOnly(settings: true);
         RefreshMcpUi();
     }
 
-    private void StartMinimized_Toggled(object sender, RoutedEventArgs e)
+    private void PrefsSave_Click(object sender, RoutedEventArgs e)
     {
-        if (_mcpUiSync) return;
         AppPrefs.StartMinimized = StartMinimizedToggle.IsOn;
-    }
-
-    private void NotifyPref_Toggled(object sender, RoutedEventArgs e)
-    {
-        if (_mcpUiSync) return;
-        if (sender is ToggleSwitch sw && sw.Tag is string tag)
+        AppPrefs.CloseToTray = CloseToTrayToggle.IsOn;
+        AppPrefs.NotifyPrompts = NotifyPromptsToggle.IsOn;
+        AppPrefs.NotifyAlerts = NotifyAlertsToggle.IsOn;
+        try
         {
-            if (tag == "prompt") AppPrefs.NotifyPrompts = sw.IsOn;
-            if (tag == "alert") AppPrefs.NotifyAlerts = sw.IsOn;
+            Autostart.SetEnabled(AutostartToggle.IsOn);
+            PrefsSaveStatus.Text = "Saved.";
+        }
+        catch (Exception ex)
+        {
+            PrefsSaveStatus.Text = "Autostart: " + ex.Message;
         }
     }
 
@@ -404,15 +461,6 @@ public sealed partial class MainWindow : Window
     {
         _settingsOpen = false;
         _ = ApplyStateAsync();
-    }
-
-    private void Autostart_Toggled(object sender, RoutedEventArgs e)
-    {
-        try { Autostart.SetEnabled(AutostartToggle.IsOn); }
-        catch (Exception ex)
-        {
-            StatusBar.Text = "Autostart: " + ex.Message;
-        }
     }
 
     private async void McpListener_Toggled(object sender, RoutedEventArgs e)

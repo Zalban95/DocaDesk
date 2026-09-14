@@ -117,6 +117,49 @@ public sealed class LocalMcpRegistry : IAsyncDisposable
         return stored;
     }
 
+    /// <summary>
+    /// Change command, args, label or working directory. Consent and autostart
+    /// stay as they are — those have their own switches. A running server is
+    /// stopped and started again so the new command line is what is listening.
+    /// </summary>
+    public async Task<LocalMcpServerSpec> UpdateAsync(string id, LocalMcpServerSpec spec)
+    {
+        var key = (id ?? "").Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(spec.Command))
+            throw new ArgumentException("A command is required.", nameof(spec));
+
+        LocalMcpServerSpec existing;
+        lock (_gate)
+        {
+            if (!_specs.TryGetValue(key, out existing!))
+                throw new KeyNotFoundException($"Unknown MCP server '{key}'.");
+        }
+
+        var stored = existing with
+        {
+            Label = string.IsNullOrWhiteSpace(spec.Label) ? existing.Label : spec.Label.Trim(),
+            Command = spec.Command.Trim(),
+            Args = spec.Args?.Where(a => a is not null).ToArray() ?? Array.Empty<string>(),
+            WorkingDirectory = string.IsNullOrWhiteSpace(spec.WorkingDirectory)
+                ? null
+                : spec.WorkingDirectory.Trim(),
+        };
+
+        var wasRunning = StateOf(key) is McpServerState.Running or McpServerState.Starting;
+        if (wasRunning)
+            await StopAsync(key).ConfigureAwait(false);
+
+        lock (_gate) _specs[key] = stored;
+        Save();
+        _audit?.Add("mcp.local.update", $"{key}: {stored.Command} {string.Join(' ', stored.Args)}");
+
+        if (wasRunning && !await StartAsync(key).ConfigureAwait(false))
+            _audit?.Add("mcp.local.update.start.fail", key);
+
+        ToolsChanged?.Invoke();
+        return stored;
+    }
+
     public async Task RemoveAsync(string id)
     {
         await StopAsync(id).ConfigureAwait(false);

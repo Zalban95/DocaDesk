@@ -243,6 +243,45 @@ public class LocalMcpRegistryTests : IDisposable
     }
 
     [Fact]
+    public async Task Update_keeps_consent_and_replaces_a_running_client()
+    {
+        if (!NodeAvailable()) return;
+        await using var registry = NewRegistry(out _);
+        registry.Add(StubSpec("stub") with { Consented = true, AutoStart = true, Label = "Stub" });
+        Assert.True(await registry.StartAsync("stub"));
+        Assert.Equal(McpServerState.Running, registry.StateOf("stub"));
+
+        var updated = await registry.UpdateAsync("stub", new LocalMcpServerSpec
+        {
+            Command = "node",
+            Args = StubSpec("stub").Args,
+            Label = "Stub v2",
+            WorkingDirectory = _dir,
+        });
+
+        Assert.Equal("Stub v2", updated.Label);
+        Assert.True(updated.Consented, "consent is not reset by an edit");
+        Assert.True(updated.AutoStart, "autostart is not reset by an edit");
+        Assert.Equal(_dir, updated.WorkingDirectory);
+        Assert.Equal(McpServerState.Running, registry.StateOf("stub"));
+        Assert.Contains("stub__echo", registry.Tools().Select(t => t.Name));
+    }
+
+    [Fact]
+    public async Task Update_of_a_stopped_server_does_not_start_it()
+    {
+        await using var registry = NewRegistry(out _);
+        registry.Add(new LocalMcpServerSpec { Id = "notes", Command = "node", Args = ["a.js"], Consented = true });
+        var updated = await registry.UpdateAsync("notes", new LocalMcpServerSpec
+        {
+            Command = "node",
+            Args = ["b.js"],
+        });
+        Assert.Equal(["b.js"], updated.Args);
+        Assert.Equal(McpServerState.Stopped, registry.StateOf("notes"));
+    }
+
+    [Fact]
     public async Task A_bad_definition_is_refused_before_anything_is_spawned()
     {
         await using var registry = NewRegistry(out _);

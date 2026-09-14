@@ -32,6 +32,13 @@ public static class AppPrefs
         set => WriteBool("McpAutoStart", value);
     }
 
+    /// <summary>When true, the window X hides to the tray. Default is false: X quits.</summary>
+    public static bool CloseToTray
+    {
+        get => ReadBool("CloseToTray", false);
+        set => WriteBool("CloseToTray", value);
+    }
+
     public static bool GetToolConsent(string tool, bool fallback = false) => ReadBool("Tool." + tool, fallback);
 
     public static void SetToolConsent(string tool, bool enabled) => WriteBool("Tool." + tool, enabled);
