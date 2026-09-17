@@ -29,6 +29,20 @@ public class LocalMcpRegistryTests : IDisposable
     /* ── Lifecycle and tools ───────────────────────────── */
 
     [Fact]
+    public async Task A_file_as_working_directory_is_reported_as_that_not_as_a_missing_command()
+    {
+        // D-5: this used to read "uvx: not found".
+        var file = Path.Combine(_dir, "__init__.py");
+        File.WriteAllText(file, "");
+        await using var client = new McpStdioClient("x", "uvx", null, file);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.StartAsync());
+
+        Assert.Contains("working directory", ex.Message);
+        Assert.DoesNotContain("not found", client.LastError);
+    }
+
+    [Fact]
     public async Task Running_server_contributes_namespaced_tools_only_once_consented()
     {
         if (!NodeAvailable()) return;                          // xunit 2.9.2 has no dynamic skip; see TODO.md

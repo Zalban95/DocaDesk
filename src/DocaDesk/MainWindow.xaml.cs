@@ -14,6 +14,7 @@ public sealed partial class MainWindow : Window
     private McpHost? _mcp;
     private bool _settingsOpen;
     private bool _mcpUiSync;
+    private bool _prefsSync;
     private string? _editingServerId;
 
     public MainWindow()
@@ -23,7 +24,6 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         ServerUrlBox.Text = AppSession.DefaultServerUrl;
         DeviceNameBox.Text = Environment.MachineName;
-        AutostartToggle.IsOn = Autostart.IsEnabled();
     }
 
     public void AttachTray(TrayHost tray) => _tray = tray;
@@ -51,7 +51,7 @@ public sealed partial class MainWindow : Window
         {
             McpListenerToggle.IsOn = _mcp.IsRunning;
             McpUrlBox.Text = _mcp.Url ?? "(listener off — enable above; requires Tailscale IPv4)";
-            McpRegStatus.Text = _mcp.RegistrationMessage
+            var reg = _mcp.RegistrationMessage
                 ?? (_mcp.Registration switch
                 {
                     McpRegistrationState.WaitingForAccept => "Waiting to be accepted in the DOCA dashboard.",
@@ -59,7 +59,12 @@ public sealed partial class MainWindow : Window
                     _ => _mcp.IsRunning ? "Listener running." : "",
                 });
             if (_mcp.BearerEnforced)
-                McpRegStatus.Text += " Bearer auth enforced.";
+                reg += " Bearer auth enforced.";
+            McpRegInfo.Message = reg.Trim();
+            McpRegInfo.Severity = _mcp.Registration == McpRegistrationState.Registered
+                ? InfoBarSeverity.Success
+                : InfoBarSeverity.Informational;
+            McpRegInfo.IsOpen = McpRegInfo.Message.Length > 0;
             SyncConsentToggle(ToolListWindows, "list_windows");
             SyncConsentToggle(ToolScreenshot, "screenshot");
             SyncConsentToggle(ToolGetClip, "get_clipboard_text");
@@ -106,40 +111,38 @@ public sealed partial class MainWindow : Window
     {
         var spec = view.Spec;
         var running = view.State == McpServerState.Running;
-        var panel = new StackPanel { Spacing = 4 };
-        var card = new Border
+        var res = Application.Current.Resources;
+        Microsoft.UI.Xaml.Media.Brush Brush(string key) => (Microsoft.UI.Xaml.Media.Brush)res[key];
+        var secondary = Brush("TextFillColorSecondaryBrush");
+
+        var (state, dot) = view.State switch
         {
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 4, 0, 4),
-            CornerRadius = new CornerRadius(6),
-            Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["LayerFillColorDefaultBrush"],
+            McpServerState.Running => ($"Running · {view.ToolCount} tool{(view.ToolCount == 1 ? "" : "s")}", "SystemFillColorSuccessBrush"),
+            McpServerState.Starting => ("Starting…", "SystemFillColorCautionBrush"),
+            McpServerState.Error => ("Failed", "SystemFillColorCriticalBrush"),
+            _ => ("Stopped", "SystemFillColorNeutralBrush"),
         };
 
-        var state = view.State switch
-        {
-            McpServerState.Running => $"running · {view.ToolCount} tool{(view.ToolCount == 1 ? "" : "s")}",
-            McpServerState.Starting => "starting",
-            McpServerState.Error => "failed",
-            _ => "stopped",
-        };
+        var panel = new StackPanel { Spacing = 4 };
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        title.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 10, Height = 10, Fill = Brush(dot), VerticalAlignment = VerticalAlignment.Center });
+        title.Children.Add(new TextBlock { Text = spec.Label, Style = (Style)res["BodyStrongTextBlockStyle"] });
+        title.Children.Add(new TextBlock { Text = state, Foreground = secondary, VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.Add(title);
         panel.Children.Add(new TextBlock
         {
-            Text = $"{spec.Label} — {state}",
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-        });
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"{spec.Command} {string.Join(' ', spec.Args)}".TrimEnd(),
-            Opacity = 0.7,
+            Text = $"{spec.Command} {string.Join(' ', spec.Args)}".TrimEnd()
+                + (string.IsNullOrWhiteSpace(spec.WorkingDirectory) ? "" : $"   (in {spec.WorkingDirectory})"),
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
             FontSize = 12,
+            Foreground = secondary,
             TextTrimming = TextTrimming.CharacterEllipsis,
+            IsTextSelectionEnabled = true,
         });
         if (!string.IsNullOrWhiteSpace(view.LastError))
-            panel.Children.Add(new TextBlock { Text = view.LastError, Opacity = 0.9, FontSize = 12, TextWrapping = TextWrapping.WrapWholeWords });
+            panel.Children.Add(new TextBlock { Text = view.LastError, FontSize = 12, Foreground = Brush("SystemFillColorCriticalBrush"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         if (running && view.ToolCount > 0 && spec.Consented)
-            panel.Children.Add(new TextBlock { Text = string.Join(", ", view.ToolNames), Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.WrapWholeWords });
-
-        var controls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            panel.Children.Add(new TextBlock { Text = string.Join(", ", view.ToolNames), FontSize = 12, Foreground = secondary, TextWrapping = TextWrapping.WrapWholeWords });
 
         var allow = new CheckBox { Content = "Allow its tools", IsChecked = spec.Consented };
         allow.Click += (_, _) => _mcp?.LocalServers.SetConsent(spec.Id, allow.IsChecked == true);
@@ -148,6 +151,7 @@ public sealed partial class MainWindow : Window
         auto.Click += (_, _) => _mcp?.LocalServers.SetAutoStart(spec.Id, auto.IsChecked == true);
 
         var power = new Button { Content = running ? "Stop" : "Start" };
+        if (!running) power.Style = (Style)res["AccentButtonStyle"];
         power.Click += async (_, _) =>
         {
             if (_mcp is null) return;
@@ -167,7 +171,7 @@ public sealed partial class MainWindow : Window
             RefreshLocalMcpUi();
         };
 
-        var copyLog = new Button { Content = "Copy log" };
+        var copyLog = new MenuFlyoutItem { Text = "Copy log" };
         copyLog.Click += (_, _) =>
         {
             if (_mcp is null) return;
@@ -181,7 +185,7 @@ public sealed partial class MainWindow : Window
         var edit = new Button { Content = "Edit" };
         edit.Click += (_, _) => BeginEditServer(spec);
 
-        var remove = new Button { Content = "Remove" };
+        var remove = new MenuFlyoutItem { Text = "Remove…" };
         remove.Click += async (_, _) =>
         {
             if (_mcp is null) return;
@@ -200,15 +204,29 @@ public sealed partial class MainWindow : Window
             RefreshLocalMcpUi();
         };
 
-        controls.Children.Add(allow);
-        controls.Children.Add(auto);
-        controls.Children.Add(power);
-        controls.Children.Add(copyLog);
-        controls.Children.Add(edit);
-        controls.Children.Add(remove);
-        panel.Children.Add(controls);
-        card.Child = panel;
-        return card;
+        var more = new MenuFlyout();
+        more.Items.Add(copyLog);
+        more.Items.Add(new MenuFlyoutSeparator());
+        more.Items.Add(remove);
+
+        var switches = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        switches.Children.Add(allow);
+        switches.Children.Add(auto);
+        panel.Children.Add(switches);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Top };
+        buttons.Children.Add(power);
+        buttons.Children.Add(edit);
+        buttons.Children.Add(new DropDownButton { Content = new FontIcon { Glyph = "", FontSize = 14 }, Flyout = more });
+
+        var grid = new Grid { ColumnSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(buttons, 1);
+        grid.Children.Add(panel);
+        grid.Children.Add(buttons);
+        // The Card style lives on the window's root grid.
+        return new Border { Style = (Style)((FrameworkElement)Content).Resources["Card"], Child = grid };
     }
 
     private void BeginEditServer(LocalMcpServerSpec spec)
@@ -219,9 +237,12 @@ public sealed partial class MainWindow : Window
         LocalMcpCommandBox.Text = spec.Command;
         LocalMcpArgsBox.Text = string.Join(Environment.NewLine, spec.Args);
         LocalMcpCwdBox.Text = spec.WorkingDirectory ?? "";
+        LocalMcpFormTitle.Text = $"Edit {spec.Id}";
         LocalMcpSaveBtn.Content = "Save changes";
-        LocalMcpCancelBtn.Visibility = Visibility.Visible;
         LocalMcpError.Visibility = Visibility.Collapsed;
+        LocalMcpForm.Visibility = Visibility.Visible;
+        LocalMcpAddBtn.IsEnabled = false;
+        LocalMcpForm.StartBringIntoView();
     }
 
     private void ClearServerForm()
@@ -232,9 +253,19 @@ public sealed partial class MainWindow : Window
         LocalMcpCommandBox.Text = "";
         LocalMcpArgsBox.Text = "";
         LocalMcpCwdBox.Text = "";
-        LocalMcpSaveBtn.Content = "Save server";
-        LocalMcpCancelBtn.Visibility = Visibility.Collapsed;
+        LocalMcpFormTitle.Text = "Add server";
+        LocalMcpSaveBtn.Content = "Save";
         LocalMcpError.Visibility = Visibility.Collapsed;
+        LocalMcpForm.Visibility = Visibility.Collapsed;
+        LocalMcpAddBtn.IsEnabled = true;
+    }
+
+    private void LocalMcpAdd_Click(object sender, RoutedEventArgs e)
+    {
+        ClearServerForm();
+        LocalMcpForm.Visibility = Visibility.Visible;
+        LocalMcpAddBtn.IsEnabled = false;
+        LocalMcpIdBox.Focus(FocusState.Programmatic);
     }
 
     private void LocalMcpCancel_Click(object sender, RoutedEventArgs e) => ClearServerForm();
@@ -430,31 +461,55 @@ public sealed partial class MainWindow : Window
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         _settingsOpen = true;
-        AutostartToggle.IsOn = Autostart.IsEnabled();
-        StartMinimizedToggle.IsOn = AppPrefs.StartMinimized;
-        CloseToTrayToggle.IsOn = AppPrefs.CloseToTray;
-        NotifyPromptsToggle.IsOn = AppPrefs.NotifyPrompts;
-        NotifyAlertsToggle.IsOn = AppPrefs.NotifyAlerts;
-        PrefsSaveStatus.Text = "";
+        _prefsSync = true;
+        try
+        {
+            AutostartToggle.IsOn = Autostart.IsEnabled();
+            StartMinimizedToggle.IsOn = AppPrefs.StartMinimized;
+            CloseToTrayToggle.IsOn = AppPrefs.CloseToTray;
+            NotifyPromptsToggle.IsOn = AppPrefs.NotifyPrompts;
+            NotifyAlertsToggle.IsOn = AppPrefs.NotifyAlerts;
+        }
+        finally
+        {
+            _prefsSync = false;
+        }
+        PrefsStatus.Visibility = Visibility.Collapsed;
+        ServerUrlText.Text = _session?.ServerUrl.TrimEnd('/') ?? "";
         ShowOnly(settings: true);
         RefreshMcpUi();
     }
 
-    private void PrefsSave_Click(object sender, RoutedEventArgs e)
+    /// <summary>Preferences save as they are toggled; there is no Save button to miss.</summary>
+    private void Pref_Toggled(object sender, RoutedEventArgs e)
     {
+        if (_prefsSync) return;
         AppPrefs.StartMinimized = StartMinimizedToggle.IsOn;
         AppPrefs.CloseToTray = CloseToTrayToggle.IsOn;
         AppPrefs.NotifyPrompts = NotifyPromptsToggle.IsOn;
         AppPrefs.NotifyAlerts = NotifyAlertsToggle.IsOn;
+        if (!ReferenceEquals(sender, AutostartToggle)) return;
         try
         {
             Autostart.SetEnabled(AutostartToggle.IsOn);
-            PrefsSaveStatus.Text = "Saved.";
+            PrefsStatus.Visibility = Visibility.Collapsed;
         }
         catch (Exception ex)
         {
-            PrefsSaveStatus.Text = "Autostart: " + ex.Message;
+            PrefsStatus.Text = "Start with Windows: " + ex.Message;
+            PrefsStatus.Visibility = Visibility.Visible;
         }
+    }
+
+    private void SettingsNav_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        // Fires from InitializeComponent for the XAML IsSelected, before the sections exist.
+        if (ActivitySection is null) return;
+        var tag = sender.SelectedItem?.Tag as string;
+        GeneralSection.Visibility = tag is "general" or null ? Visibility.Visible : Visibility.Collapsed;
+        DeskSection.Visibility = tag == "desk" ? Visibility.Visible : Visibility.Collapsed;
+        ServersSection.Visibility = tag == "servers" ? Visibility.Visible : Visibility.Collapsed;
+        ActivitySection.Visibility = tag == "activity" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SettingsBack_Click(object sender, RoutedEventArgs e)

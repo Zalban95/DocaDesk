@@ -35,6 +35,36 @@ push loop has two other implementations to check against before inventing a thir
 `ProjectReference` alone and are not solution members. Verify with `dotnet sln list` before
 assuming a solution-wide command touched what you think it did.
 
+## Start here: `ISSUES.md` and `TODO.md`
+
+**Read both before you touch anything.** They are the handover. Three of the four open issues are
+the *second* attempt at the same symptom, which is what happens when a session starts without them.
+
+- **`ISSUES.md` — live defects.** Behaviour nobody chose, seen on a real Windows machine. Ids are
+  `D-n` and never change; cite the id in the commit subject.
+- **`TODO.md` — deliberate omissions.** A decision with its reason. When a deferred item turns out
+  to bite someone it gets promoted to `ISSUES.md`; when an issue turns out to have been a decision
+  it moves back with the reason. Do not silently drop either.
+
+Five rules:
+
+1. **Write the entry before the patch.** Naming the file and symbol is most of the work.
+2. **A fix is not a close.** Move to `## Fixed` only after it has been *run* on portal and the
+   symptom is gone. The cloud container can build this repo; it cannot run WinUI, so **every close
+   here is a Windows observation**, made by a person or reported back from that machine.
+3. **A partial fix stays open, with a note on what landed.** `D-1` is the standing example: the
+   close *policy* shipped, the *hang* did not. Marking it fixed because the visible half is done is
+   how it comes back a third time.
+4. **Never delete an entry.** Fixed ones move down with the version that fixed them.
+5. **Every release gets a row in the review log.** A release with no row is unreviewed — which is
+   what 2.23.0 is.
+
+**One invariant that is not negotiable and is easy to break by accident:** destructive operations
+need a human at this keyboard. Nothing DOCA sends, and nothing an agent decides, may remove a local
+MCP server definition. Today that holds because the host-facing surface is `PATCH /mcp/self`
+(`url` and `headers` only) and the only caller of `LocalMcpRegistry.RemoveAsync` is one dialog in
+`MainWindow.xaml.cs`. Both halves of that are load-bearing — see `ISSUES.md` → `D-3`.
+
 ## Running / building
 
 - `dotnet build DocaDesk.sln` builds Capture and the app; Core and Mcp come along transitively.

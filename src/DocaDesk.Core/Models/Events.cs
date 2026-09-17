@@ -51,7 +51,7 @@ public sealed class HelloPayload
     public long? Since { get; set; }
 
     [JsonPropertyName("replay")]
-    public bool? Replay { get; set; }
+    public int? Replay { get; set; }
 
     [JsonPropertyName("resync")]
     public bool? Resync { get; set; }

@@ -4,6 +4,19 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <Grid>
+        <Grid.Resources>
+            <Style x:Key="Card" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="16,12" />
+            </Style>
+            <Style x:Key="SettingDesc" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="TextWrapping" Value="WrapWholeWords" />
+            </Style>
+        </Grid.Resources>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -70,68 +83,273 @@
                 </StackPanel>
             </Border>
 
-            <Border x:Name="SettingsPanel" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-                    Padding="24" Visibility="Collapsed">
-                <ScrollViewer>
-                    <StackPanel MaxWidth="560" HorizontalAlignment="Center" Spacing="12" Margin="0,12,0,24">
-                        <TextBlock Text="Settings" FontSize="28" FontWeight="SemiBold" />
-                        <TextBlock Text="Settings change this device. Profiles (what the dashboard shows) live on the server."
-                                   TextWrapping="WrapWholeWords" Opacity="0.75" />
-
-                        <TextBlock Text="Consent / MCP tools" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
-                        <TextBlock Text="Everything starts off. The agent cannot use a tool until you switch it on here (independent of the dashboard)."
-                                   TextWrapping="WrapWholeWords" Opacity="0.75" />
-                        <ToggleSwitch x:Name="McpListenerToggle" Header="MCP listener (off by default)" Toggled="McpListener_Toggled" />
-                        <TextBlock x:Name="McpRegStatus" TextWrapping="WrapWholeWords" Opacity="0.85" />
-                        <TextBox x:Name="McpUrlBox" Header="Listener URL (offered/patched to DOCA automatically when the listener starts)"
-                                 IsReadOnly="True" TextWrapping="Wrap" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="Copy URL" Click="McpCopy_Click" />
-                            <Button Content="Regenerate secret" Click="McpRegen_Click" />
-                        </StackPanel>
-                        <TextBlock Text="DOCA 2.10+: starting the listener offers or re-addresses your server (mcp:self). A human still accepts the first offer in the dashboard under “On a paired client”. Host start/stop requests respect this master switch and tool consent."
-                                   TextWrapping="WrapWholeWords" Opacity="0.75" FontSize="12" />
-                        <ToggleSwitch x:Name="ToolListWindows" Header="list_windows (read)" Toggled="ToolConsent_Toggled" Tag="list_windows" />
-                        <ToggleSwitch x:Name="ToolScreenshot" Header="screenshot (read)" Toggled="ToolConsent_Toggled" Tag="screenshot" />
-                        <ToggleSwitch x:Name="ToolGetClip" Header="get_clipboard_text (read)" Toggled="ToolConsent_Toggled" Tag="get_clipboard_text" />
-                        <ToggleSwitch x:Name="ToolSetClip" Header="set_clipboard_text (write)" Toggled="ToolConsent_Toggled" Tag="set_clipboard_text" />
-                        <ToggleSwitch x:Name="ToolOpenUrl" Header="open_url (write)" Toggled="ToolConsent_Toggled" Tag="open_url" />
-
-                        <TextBlock Text="MCP servers on this PC" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
-                        <TextBlock Text="Servers DocaDesk runs here and forwards to DOCA, so an agent on any device can use them. A server's tools reach the agent only while it is running and allowed. Only you can add one — nothing arriving over the wire can."
-                                   TextWrapping="WrapWholeWords" Opacity="0.75" />
-                        <StackPanel x:Name="LocalMcpRows" Spacing="8" />
-                        <TextBlock x:Name="LocalMcpEmpty" Text="None yet. Fill the form and press Save — for example command “npx” with arguments “-y” and “@modelcontextprotocol/server-filesystem” and a folder as the working directory."
-                                   TextWrapping="WrapWholeWords" Opacity="0.6" FontSize="12" />
-                        <TextBox x:Name="LocalMcpIdBox" Header="Id (a–z, 0–9, hyphen)" PlaceholderText="filesystem" />
-                        <TextBox x:Name="LocalMcpCommandBox" Header="Command" PlaceholderText="npx" />
-                        <TextBox x:Name="LocalMcpArgsBox" Header="Arguments (one per line)" AcceptsReturn="True"
-                                 TextWrapping="Wrap" Height="76" />
-                        <TextBox x:Name="LocalMcpCwdBox" Header="Working directory (optional)"
-                                 PlaceholderText="Leave empty to use the default" />
-                        <TextBlock x:Name="LocalMcpError" Foreground="DarkRed" TextWrapping="WrapWholeWords" Visibility="Collapsed" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button x:Name="LocalMcpSaveBtn" Content="Save server" Click="LocalMcpSave_Click" />
-                            <Button x:Name="LocalMcpCancelBtn" Content="Cancel edit" Click="LocalMcpCancel_Click" Visibility="Collapsed" />
-                        </StackPanel>
-
-                        <TextBlock Text="Audit (recent)" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
-                        <ListView x:Name="AuditList" MaxHeight="180" />
-
-                        <TextBlock Text="This device" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
-                        <ToggleSwitch x:Name="StartMinimizedToggle" Header="Start minimized (to tray)" />
-                        <ToggleSwitch x:Name="CloseToTrayToggle" Header="Close to tray (keep running in the background)" />
-                        <ToggleSwitch x:Name="NotifyPromptsToggle" Header="Notify on prompts" Tag="prompt" />
-                        <ToggleSwitch x:Name="NotifyAlertsToggle" Header="Notify on alerts" Tag="alert" />
-                        <ToggleSwitch x:Name="AutostartToggle" Header="Start with Windows (to tray)" />
-                        <TextBlock x:Name="PrefsSaveStatus" Opacity="0.75" />
-                        <Button x:Name="PrefsSaveBtn" Content="Save settings" Click="PrefsSave_Click" />
-                        <Button Content="Open metrics panel" Click="Metrics_Click" />
-                        <Button Content="Unpair this device" Click="Unpair_Click" />
-                        <Button Content="Back" Click="SettingsBack_Click" />
+            <Grid x:Name="SettingsPanel" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel MaxWidth="760" Padding="24,16,24,0" Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Click="SettingsBack_Click" ToolTipService.ToolTip="Back" Background="Transparent" BorderThickness="0" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE72B;" FontSize="16" />
+                        </Button>
+                        <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
                     </StackPanel>
+                    <SelectorBar x:Name="SettingsNav" SelectionChanged="SettingsNav_SelectionChanged">
+                        <SelectorBarItem Text="General" Tag="general" IsSelected="True" />
+                        <SelectorBarItem Text="Desk tools" Tag="desk" />
+                        <SelectorBarItem Text="MCP servers" Tag="servers" />
+                        <SelectorBarItem Text="Activity" Tag="activity" />
+                    </SelectorBar>
+                </StackPanel>
+                <ScrollViewer Grid.Row="1">
+                    <Grid MaxWidth="760" Padding="24,12,24,32">
+                        <StackPanel x:Name="GeneralSection" Spacing="4">
+                                <TextBlock Text="Startup and window" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,0,0,4" />
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Start with Windows" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Launch into the tray when you sign in." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="AutostartToggle" Toggled="Pref_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Start minimized" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Open to the tray instead of showing the window." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="StartMinimizedToggle" Toggled="Pref_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Close to tray" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="The X button hides the window and keeps DocaDesk running. Off: X quits." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="CloseToTrayToggle" Toggled="Pref_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <TextBlock Text="Notifications" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,16,0,4" />
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Prompts" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Show a Windows notification when the agent asks you something." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="NotifyPromptsToggle" Toggled="Pref_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Alerts" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Show a Windows notification for alerts from DOCA." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="NotifyAlertsToggle" Toggled="Pref_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <TextBlock x:Name="PrefsStatus" Style="{StaticResource SettingDesc}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" Visibility="Collapsed" />
+                                <TextBlock Text="This device" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,16,0,4" />
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Server" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="The DOCA server this device is paired with." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" x:Name="ServerUrlText" VerticalAlignment="Center" IsTextSelectionEnabled="True" Opacity="0.8" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Metrics panel" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Live counters for this device in a separate window." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Open" Click="Metrics_Click" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Unpair" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Forget this device’s token here. Revoke it in the dashboard to cut it off on the server too." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Unpair" Click="Unpair_Click" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                        </StackPanel>
+                        <StackPanel x:Name="DeskSection" Spacing="4" Visibility="Collapsed">
+                                <TextBlock Text="Listener" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,0,0,4" />
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="MCP listener" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Serves this PC’s tools to DOCA over Tailscale. Starting it offers or re-addresses this device; a person accepts the first offer in the dashboard." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="McpListenerToggle" Toggled="McpListener_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <InfoBar x:Name="McpRegInfo" IsClosable="False" IsOpen="False" />
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Listener URL" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                        <TextBox x:Name="McpUrlBox" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" />
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Content="Copy URL" Click="McpCopy_Click" />
+                                            <Button Content="Regenerate secret" Click="McpRegen_Click" />
+                                        </StackPanel>
+                                        <TextBlock Text="Sent to DOCA automatically. Regenerating invalidates the old URL and bearer." Style="{StaticResource SettingDesc}" />
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="Tools" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,16,0,4" />
+                                <TextBlock Text="Everything starts off. The agent cannot use a tool until you switch it on here, whatever the dashboard says." Style="{StaticResource SettingDesc}" Margin="0,0,0,4" />
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="list_windows" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Read · List visible windows: title, process, minimized." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="ToolListWindows" Tag="list_windows" Toggled="ToolConsent_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="screenshot" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Read · Capture a window or monitor and upload it to DOCA." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="ToolScreenshot" Tag="screenshot" Toggled="ToolConsent_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="get_clipboard_text" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Read · Read the clipboard as text." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="ToolGetClip" Tag="get_clipboard_text" Toggled="ToolConsent_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="set_clipboard_text" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Write · Replace the clipboard text." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="ToolSetClip" Tag="set_clipboard_text" Toggled="ToolConsent_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="open_url" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Write · Open an http(s) link in your default browser." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="ToolOpenUrl" Tag="open_url" Toggled="ToolConsent_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                        </StackPanel>
+                        <StackPanel x:Name="ServersSection" Spacing="4" Visibility="Collapsed">
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Servers DocaDesk runs on this PC and forwards to DOCA. Their tools reach the agent only while the listener is on and the server is running and allowed. Only you can add one." Style="{StaticResource SettingDesc}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" x:Name="LocalMcpAddBtn" Click="LocalMcpAdd_Click" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE710;" FontSize="14" />
+                                            <TextBlock Text="Add server" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                                <Border x:Name="LocalMcpForm" Style="{StaticResource Card}" Visibility="Collapsed" Margin="0,8,0,0">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock x:Name="LocalMcpFormTitle" Text="Add server" Style="{StaticResource SubtitleTextBlockStyle}" />
+                                        <TextBox x:Name="LocalMcpIdBox" Header="Id" PlaceholderText="blender" Description="a–z, 0–9 and hyphens. Becomes the tool prefix, e.g. blender__execute_blender_code." />
+                                        <TextBox x:Name="LocalMcpCommandBox" Header="Command" PlaceholderText="uvx" FontFamily="Consolas" />
+                                        <TextBox x:Name="LocalMcpArgsBox" Header="Arguments, one per line" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="88" FontFamily="Consolas"
+                                                 PlaceholderText="--from&#x0a;git+https://projects.blender.org/lab/blender_mcp.git#subdirectory=mcp&#x0a;blender-mcp" />
+                                        <TextBox x:Name="LocalMcpCwdBox" Header="Working directory (optional)" PlaceholderText="A folder, not a file. Leave empty for the default." />
+                                        <TextBlock x:Name="LocalMcpError" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="WrapWholeWords" Visibility="Collapsed" />
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button x:Name="LocalMcpSaveBtn" Content="Save" Click="LocalMcpSave_Click" Style="{StaticResource AccentButtonStyle}" />
+                                            <Button Content="Cancel" Click="LocalMcpCancel_Click" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <StackPanel x:Name="LocalMcpRows" Spacing="4" Margin="0,8,0,0" />
+                                <TextBlock x:Name="LocalMcpEmpty" Text="No servers yet. Press Add server." Style="{StaticResource SettingDesc}" Margin="0,8,0,0" />
+                        </StackPanel>
+                        <StackPanel x:Name="ActivitySection" Spacing="4" Visibility="Collapsed">
+                                <TextBlock Text="The last 40 audit entries, newest first. The full log is %LOCALAPPDATA%\DocaDesk\audit.jsonl." Style="{StaticResource SettingDesc}" Margin="0,0,0,8" />
+                                <Border Style="{StaticResource Card}" Padding="4">
+                                    <ListView x:Name="AuditList" SelectionMode="None" FontFamily="Consolas" FontSize="12" />
+                                </Border>
+                        </StackPanel>
+                    </Grid>
                 </ScrollViewer>
-            </Border>
+            </Grid>
         </Grid>
 
         <TextBlock Grid.Row="2" x:Name="StatusBar" Padding="12,6" Opacity="0.7" FontSize="12" />

@@ -109,6 +109,12 @@ public sealed class McpStdioClient : IAsyncDisposable
             LastError = ex.Message;
             Note($"[error] {ex.Message}");
             await StopAsync(quiet: true).ConfigureAwait(false);
+            // The real reason ("No space left on device", a Python traceback) is
+            // usually the server's last stderr line; put it where the row shows it.
+            var stderr = Log.Where(l => !l.StartsWith('[')).ToArray();
+            var lastStderr = stderr.LastOrDefault(l => l.Contains("error", StringComparison.OrdinalIgnoreCase))
+                ?? stderr.LastOrDefault();
+            if (lastStderr is not null) LastError = $"{ex.Message} — {Truncate(lastStderr.Trim(), 300)}";
             State = McpServerState.Error;
             throw;
         }
@@ -196,6 +202,11 @@ public sealed class McpStdioClient : IAsyncDisposable
 
     private void Spawn()
     {
+        // Process.Start reports a bad directory as the same Win32Exception as a
+        // missing command, which blamed the command.
+        if (!string.IsNullOrWhiteSpace(WorkingDirectory) && !Directory.Exists(WorkingDirectory))
+            throw new InvalidOperationException($"working directory is not a folder that exists: {WorkingDirectory}");
+
         var psi = new ProcessStartInfo
         {
             FileName = Command,
