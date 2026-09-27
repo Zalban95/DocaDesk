@@ -431,6 +431,89 @@ small, and even if the person who wrote it knew.
   list a folder, read a file, upload one (base64 write) and download one (base64 read) — and see a
   refusal when the grant is off.
 
+### D-17 · A family nobody granted is still listed to the harness
+
+- **Status:** open. Found 2026-09-27 reading DOCA's `modules/mcp/tools.js` while planning the next
+  families.
+- **What happens.** `available()` (`tools.js:28-70`) exposes **every** tool of a device's running
+  server to the harness, trusted or not, and never consults `devices-control.state().usable`. Only
+  the Files tab checks the grant (`device-files.js:32`). So `PROTOCOL.md` §22.1's *"DOCA offers the
+  harness only a family that is granted and not revoked"* and design §2's *"a tool the device would
+  refuse is not shown as available"* are not true on the harness path. With D-16 as landed, this
+  listener lists all seven `files_*` tools from the moment it starts; every call is refused by
+  `FilesTools` until the person grants the family, but the agent sees them, picks them, and spends a
+  step reading the refusal.
+- **This is DOCA's defect as much as ours**, and it belongs in DOCA's `ISSUES.md` too — reported to
+  Al rather than edited there from this repo. Our side can make the rule hold regardless, which is
+  the right place for it anyway: the device is the one that knows what its person allowed.
+- **Fix shape (ours).** List a family's tools only while `FamilyConsent.IsUsable(family)`, through
+  `DynamicTools` (already asked on every list and every call), and `NotifyToolsChanged()` on every
+  grant or revoke — already wired, so DOCA re-lists at once. `FilesTools`' own refusal stays as the
+  second gate for the race between a list and a call.
+- **Patch landed 2026-09-27, not run against DOCA.** `FamilyTool` (listing gate + call gate) and
+  `FamilyTool.Offered`, composed into `DynamicTools` in `McpHost.StartAsync`. Test:
+  `Only_usable_families_are_offered` (granted → listed, revoked → gone).
+- **How to close it:** on portal, with `files` not granted, the MCP card in DOCA shows no `files_*`
+  tool; grant it and they appear without ↺ Tools; revoke it in DOCA and they disappear again.
+
+### D-19 · Reporting grants re-triggers itself (D-15 as committed in `63609d1`)
+
+- **Status:** open. Found 2026-09-27 re-reading `63609d1` an hour after committing it; never run.
+- **Where.** `McpHost` wires `_families.Changed += () => _ = _hands.ReportGrantsAsync()`.
+  `ReportGrantsAsync` then calls `FamilyConsent.SetRevoked` for **all nine** families from DOCA's
+  answer, and `SetRevoked` raises `Changed` **unconditionally**, whether or not anything changed.
+- **What happens.** One report raises `Changed` nine times, each starting another report, each of
+  which raises it nine more times: an unbounded fan-out of `PUT /devices/self/grants` from the first
+  toggle or the first Paired. It would not stop until the app did. The unit tests could not see it —
+  they use a null client, so `ReportGrantsAsync` returns before the loop.
+- **Fix shape.** `FamilyConsent` raises its events only when a value actually changes, and splits
+  them: `GrantsChanged` (the person's answer — the only thing worth reporting) and `Changed`
+  (anything, for the UI and `NotifyToolsChanged`). `DeviceHands` subscribes to `GrantsChanged`
+  itself, so the Linux client inherits the right wiring instead of copying the wrong one, and
+  `McpHost` stops reporting on its own. Plus a test that a revoke does not raise `GrantsChanged`.
+- **Patch landed 2026-09-27.** As in the fix shape; test
+  `Only_the_persons_answer_raises_GrantsChanged_and_only_when_it_changes`. Green on portal, but the
+  loop only shows with a live client, so this still closes on the audit-log observation below.
+- **How to close it:** on portal, toggle `files` once and see exactly one `device.grants` line in
+  the audit log.
+
+### D-18 · The other families: shell, processes, screen, input, apps, elevated
+
+- **Status:** open. Feature, tracked as an entry at Al's instruction; closes only when run here.
+- **Names.** §22.1 fixes only the `files` shapes. For the rest:
+  - **`shell`** mirrors the **host's own tools exactly** — `shell {command, cwd?, timeoutSec?,
+    background?}` and `shell_job {action: status|output|stop|list, id?, bytes?}`
+    (DOCA `modules/harness/toolbox/files.js:39-100`) — because design §1 wants *"the same names on
+    every machine so an agent learns them once"*, and the host already has names for this family.
+    DOCA exposes a device tool as `mcp__<server>__shell`, so there is no clash with the host's.
+  - The rest have no host counterpart, so they follow `files_*`: `processes_list/start/stop`,
+    `screen_windows/capture`, `input_move/click/type/keys`, `apps_open`, `elevated_run`.
+    **DOCA should adopt these into §22.1** — until it does, they are this client's proposal, and the
+    Linux client must use the same names.
+- **Portability.** `shell`, `processes` and `apps` are portable .NET and live in `DocaDesk.Mcp`.
+  `input` (user32 `SendInput`) and `elevated` (UAC through the `runas` verb) are Windows-only but
+  WinUI-free, so they live there too, behind `OperatingSystem.IsWindows()`, and the Linux client
+  simply does not list them as implemented. `screen` needs `DocaDesk.Capture`, which `DocaDesk.Mcp`
+  cannot reference (`net9.0` vs `net9.0-windows`), so its two tools wrap the existing
+  `list_windows`/`screenshot` implementations in the app — no second capture path.
+- **`elevated` asks Windows every time.** Design §2: the OS's own prompts are never bypassed. Each
+  `elevated_run` is a separate `runas` launch, so UAC appears per call; declining it is a refusal the
+  agent reads, not an error. Output comes back through a temp file because a `runas` process cannot
+  have its streams redirected.
+- **`device` and `mcp` stay unimplemented as families** for now: on the desk, `device`
+  (notifications, prompts) is the push/prompt protocol that already runs, and `mcp` (forwarded
+  servers) already has per-server consent. Reporting either as a granted family needs a decision
+  about what the switch would *add*, which nobody has made — recorded in `TODO.md`.
+- **Patch landed 2026-09-27, not run against DOCA.** `ShellTools`, `ProcessAppTools`, `WindowsTools`
+  (input, elevated) in `DocaDesk.Mcp`; `DeskTools.CreateScreenFamily` in the app. Tests (on portal,
+  green): shell exit code and UTF-8 output, timeout, a background job followed and stopped,
+  `processes_list`, refusing to stop DocaDesk itself, the `INPUT` struct size `SendInput` checks, an
+  unknown key refused before any key goes down, and no name collisions. **Not exercised by any
+  test, on purpose:** `input_move/click/type/keys` (they would move this machine's real pointer)
+  and `elevated_run` (a UAC prompt) — those two close only by hand.
+- **How to close it:** on portal, each family granted in Settings → This device, and each tool run
+  once from the harness — including one UAC prompt accepted and one declined.
+
 ---
 
 ## Fixed

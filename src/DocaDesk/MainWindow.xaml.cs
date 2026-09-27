@@ -531,7 +531,7 @@ public sealed partial class MainWindow : Window
 
         foreach (var family in ToolFamilies.All)
         {
-            var implemented = ToolFamilies.ImplementedOnWindows.Contains(family, StringComparer.Ordinal);
+            var implemented = ToolFamilies.Implemented.Contains(family, StringComparer.Ordinal);
             var revoked = _mcp.Families.IsRevoked(family);
             var granted = _mcp.Families.Granted(family) == true;
 

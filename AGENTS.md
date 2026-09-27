@@ -26,9 +26,9 @@ push loop has two other implementations to check against before inventing a thir
 |---|---|
 | `src\DocaDesk` | The WinUI 3 app: window, tray, WebView2 host, prompt window, notifications, consent UI, settings, and `Services\McpHost.cs` which owns the listener's lifecycle |
 | `src\DocaDesk.Core` | Protocol client: models, `DocaClient`, DPAPI credential store, push loop and cursor, error mapping, `RedactingLogger`. No UI dependencies. **`TreatWarningsAsErrors` is set for this project alone** (`Directory.Build.props:6`) |
-| `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, the local-server registry, and the **tool families** this device offers the harness (`ToolFamilies`, `FamilyConsent`, `DeviceHands`, `FilesTools`). Must not reference WinUI — the listener has to be startable from a test with no window, and the Linux client reuses the families unchanged |
+| `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, the local-server registry, and the **tool families** this device offers the harness (`ToolFamilies`, `FamilyConsent`, `FamilyTool`, `DeviceHands`, and one file of tools per family group). Must not reference WinUI — the listener has to be startable from a test with no window, and the Linux client reuses the families unchanged |
 | `src\DocaDesk.Capture` | `Windows.Graphics.Capture` with a `PrintWindow`/GDI fallback, encoding and downscaling |
-| `tests\DocaDesk.Tests` | xUnit, 92 tests |
+| `tests\DocaDesk.Tests` | xUnit, 101 tests |
 
 **`DocaDesk.sln` now contains all five projects** (`dotnet sln list`, verified on portal
 2026-09-27). It used to hold only `src\DocaDesk.Capture` and `src\DocaDesk`, and both this file and
@@ -70,7 +70,7 @@ MCP server definition. Today that holds because the host-facing surface is `PATC
 
 - `dotnet build DocaDesk.sln` builds all five projects.
 - **`dotnet test` with no argument now runs the suite** — the test project is a solution member, so
-  bare `dotnet test` reports `Passed: 92`. This file used to say it *"builds nothing, runs nothing,
+  bare `dotnet test` reports `Passed: 101`. This file used to say it *"builds nothing, runs nothing,
   and exits 0"*, which was true once and is the kind of stale warning that makes a reader distrust a
   green run. Naming the project — `dotnet test tests\DocaDesk.Tests` — is still the habit worth
   keeping: it is faster and unambiguous.
@@ -237,9 +237,31 @@ Only the Settings page and the HKCU storage live in `src\DocaDesk`.
 - **The family tools gate on `FamilyConsent`, not `ToolConsent`.** They are registered in
   `ToolConsent` as always-on and refuse internally, because a family is one question asked once —
   not seven switches. Do not "fix" this into per-tool toggles without reading design §2.
-- `ToolFamilies.ImplementedOnWindows` is **`files` only** today. A family listed there but not built
-  would be offered to the harness and then fail on every call, which is worse than not offering it:
-  the switch for anything else is drawn disabled and reports `false`.
+- **Implemented on Windows: `files`, `shell`, `processes`, `screen`, `input`, `apps`, `elevated`**
+  (`ToolFamilies.Implemented`, per OS; Linux: `files`, `shell`, `processes`, `apps`). `device` and
+  `mcp` are reported `false` everywhere and drawn disabled — see `TODO.md`.
+- **A family's tools are listed only while it is usable** (`FamilyTool.Offered`, composed into
+  `DynamicTools` in `McpHost.StartAsync`). DOCA's `modules/mcp/tools.js` exposes every tool a
+  device lists, whatever its grants, so this listener is what makes "a tool the device would refuse
+  is not shown" true (`ISSUES.md` → `D-17`). `FamilyTool` refuses a call anyway, for the race
+  between a list and a call. A grant or revoke calls `NotifyToolsChanged()`, so DOCA re-lists.
+- **Names.** `shell`/`shell_job` are the **host's own names and arguments**, on purpose — one set of
+  names on every machine. The rest (`processes_*`, `screen_windows/capture`, `input_*`, `apps_open`,
+  `elevated_run`) follow `files_*` and are **not in `PROTOCOL.md` yet**: this client's proposal,
+  which the Linux client must copy exactly (`D-18`).
+- **Where each lives.** Portable in `DocaDesk.Mcp`: `ShellTools`, `ProcessAppTools`. Windows-only but
+  WinUI-free, also in `DocaDesk.Mcp`: `WindowsTools` (`SendInput`; UAC via `runas`). In the app:
+  the two `screen` tools, because they need `DocaDesk.Capture` — they **wrap** `list_windows` and
+  `screenshot`, so there is one capture path.
+- **`elevated_run` goes through UAC every call**, and a declined prompt (`ERROR_CANCELLED`, 1223) is
+  an answer the agent reads. The command is written to the audit log *before* the prompt, because
+  UAC cannot show it (it travels as `-EncodedCommand`).
+- **`FamilyConsent` raises events only on a real change, and `GrantsChanged` is separate from
+  `Changed`.** A report writes DOCA's revocations back into it; when that raised the event the report
+  listens to, one toggle fanned out without end (`D-19`). `DeviceHands` owns the report-on-change
+  wiring so the Linux client inherits it.
+- Background shell jobs log to `%TEMP%\docadesk-job_*.log` and are **killed on quit**
+  (`ShellTools.StopAllJobs` from `McpHost.DisposeAsync`).
 
 ## Host registration (`src\DocaDesk\Services\McpHost.cs`)
 
@@ -296,7 +318,7 @@ its summary verbatim — brief §6.1 requires the log to stay useful. The conseq
 
 ## Tests (`tests\DocaDesk.Tests`)
 
-`dotnet test tests\DocaDesk.Tests` — 92 tests, no server, no display, no API key, no installed MCP
+`dotnet test tests\DocaDesk.Tests` — 101 tests, no server, no display, no API key, no installed MCP
 server.
 
 - **`LocalMcpRegistryTests` writes a real stdio MCP server as a `const string` of JavaScript

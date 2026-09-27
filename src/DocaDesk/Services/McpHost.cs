@@ -71,11 +71,11 @@ public sealed class McpHost : IAsyncDisposable
         };
         _hands.Changed += () => Changed?.Invoke();
 
-        // Report on every change and whenever the session comes back paired. DOCA offers the
+        // DeviceHands reports on every grant change itself (D-19); this adds "whenever the session
+        // comes back paired". DOCA offers the
         // harness nothing from a device that has not reported, and a report also clears a
         // disconnect on its side (devices-control.js:91) — so this is how the device says it is
         // back, which is why it hangs off the session rather than off the listener.
-        _families.Changed += () => _ = _hands.ReportGrantsAsync();
         _session.Changed += OnSessionChanged;
         _session.EventReceived += OnPushEventAsync;
     }
@@ -144,21 +144,27 @@ public sealed class McpHost : IAsyncDisposable
     /// screenshot, and autostart happens after the listener is up.
     /// </summary>
     public bool AnyToolConsented() =>
-        ToolNames.Any(t => _consent.IsEnabled(t)) || _localServers.List().Any(s => s.Consented);
+        ToolNames.Any(t => _consent.IsEnabled(t))
+        || _localServers.List().Any(s => s.Consented)
+        || ToolFamilies.All.Any(_families.IsUsable);   // a machine may grant only its files
 
     public async Task StartAsync()
     {
         await StopListenerOnlyAsync().ConfigureAwait(false);
         var host = new Uri(_session.ServerUrl).Host;
-        // The five desk tools, plus the families this device offers as the harness's hands (§22.1).
-        // The family tools gate themselves on FamilyConsent, not on ToolConsent — a family is one
-        // question asked once, not five switches — so they are registered as always-consented here
-        // and refuse internally when the family is off. See FilesTools.
-        var tools = DeskTools.Create(_capturer, () => _session.Client, _audit, OnCaptureFlash)
-            .Concat(FilesTools.Create(_families, _audit))
+        // The five desk tools are static; the families (§22.1) are asked on every list and call
+        // alongside the local servers, so a family appears the moment it is granted and disappears
+        // the moment it is refused or revoked (D-17). A family is one question asked once, so its
+        // tools gate on FamilyConsent and are registered in ToolConsent as always-on.
+        var tools = DeskTools.Create(_capturer, () => _session.Client, _audit, OnCaptureFlash);
+        var familyTools = FilesTools.Create(_families, _audit)
+            .Concat(ShellTools.Create(_families, _audit))
+            .Concat(ProcessAppTools.Create(_families, _audit))
+            .Concat(WindowsTools.Create(_families, _audit))
+            .Concat(DeskTools.CreateScreenFamily(_capturer, () => _session.Client, _audit, OnCaptureFlash, _families))
             .ToArray();
-        foreach (var name in FilesTools.Names)
-            _consent.Register(name, true);
+        foreach (var t in familyTools)
+            _consent.Register(t.Name, true);
         _listener = new McpHttpListener(new McpListenerOptions
         {
             PathSecret = _secret,
@@ -166,8 +172,9 @@ public sealed class McpHost : IAsyncDisposable
             Consent = _consent,
             Audit = _audit,
             Tools = tools,
-            // Asked per request, so a local server that stops also stops being offered.
-            DynamicTools = _localServers.Tools,
+            // Asked per request, so a local server that stops, or a family that is revoked, also
+            // stops being offered.
+            DynamicTools = () => _localServers.Tools().Concat(FamilyTool.Offered(familyTools, _families)).ToArray(),
             RequiredBearerToken = _bearer,
             // Offer/patch the header first; enforce only after host is known to hold it (§3.4).
             EnforceBearer = _enforceBearer,
@@ -444,7 +451,9 @@ public sealed class McpHost : IAsyncDisposable
         _session.EventReceived -= OnPushEventAsync;
         StopWaitPoll();
         await StopListenerOnlyAsync().ConfigureAwait(false);
-        // These are our child processes; leaving them behind would leak them.
+        // These are our child processes; leaving them behind would leak them. Background shell
+        // jobs too: after quit nobody could see or stop them.
+        ShellTools.StopAllJobs();
         await _localServers.DisposeAsync().ConfigureAwait(false);
     }
 }

@@ -27,16 +27,17 @@ namespace DocaDesk.Mcp;
 /// </summary>
 public static class FilesTools
 {
-    public static IReadOnlyList<IMcpTool> Create(FamilyConsent consent, AuditLog? audit) =>
-    [
-        new ListTool(consent, audit),
-        new ReadTool(consent, audit),
-        new WriteTool(consent, audit),
-        new MkdirTool(consent, audit),
-        new MoveTool(consent, audit),
-        new CopyTool(consent, audit),
-        new DeleteTool(consent, audit),
-    ];
+    public static IReadOnlyList<FamilyTool> Create(FamilyConsent consent, AuditLog? audit) =>
+        new IMcpTool[]
+        {
+            new ListTool(consent, audit),
+            new ReadTool(consent, audit),
+            new WriteTool(consent, audit),
+            new MkdirTool(consent, audit),
+            new MoveTool(consent, audit),
+            new CopyTool(consent, audit),
+            new DeleteTool(consent, audit),
+        }.Select(t => new FamilyTool(ToolFamilies.Files, t, consent)).ToArray();
 
     /// <summary>The names, so consent registration and tests do not retype them.</summary>
     public static readonly IReadOnlyList<string> Names =

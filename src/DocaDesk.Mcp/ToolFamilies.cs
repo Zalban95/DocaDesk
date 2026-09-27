@@ -26,11 +26,17 @@ public static class ToolFamilies
         [Files, Shell, Processes, Screen, Input, Apps, Device, Elevated, Mcp];
 
     /// <summary>
-    /// What this build can actually do, whatever the person allows. A family absent here is
-    /// reported as <c>false</c> rather than omitted, because DOCA distinguishes "refused" from
-    /// "not mentioned" only by presence, and a family we cannot serve must never be offered.
+    /// What this build can actually do on this OS, whatever the person allows. A family absent
+    /// here is reported as <c>false</c> rather than omitted, because DOCA distinguishes "refused"
+    /// from "not mentioned" only by presence, and a family we cannot serve must never be offered.
+    ///
+    /// `screen` is listed for Windows although its tools are built in the app (they need
+    /// `DocaDesk.Capture`, which this project cannot reference) — a host that constructs no screen
+    /// tools simply lists none. `device` and `mcp` are deliberately absent everywhere: see TODO.md.
     /// </summary>
-    public static readonly IReadOnlyList<string> ImplementedOnWindows = [Files];
+    public static readonly IReadOnlyList<string> Implemented = OperatingSystem.IsWindows()
+        ? [Files, Shell, Processes, Screen, Input, Apps, Elevated]
+        : [Files, Shell, Processes, Apps];
 
     /// <summary>A human sentence for the consent prompt. One per family, because the prompt is the consent.</summary>
     public static string Describe(string family) => family switch

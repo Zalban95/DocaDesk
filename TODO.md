@@ -87,14 +87,24 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
 
 ## Devices as hands, deliberately one family at a time
 
-- **Only `files` is implemented of the nine.** `shell`, `processes`, `screen`, `input`, `apps`,
-  `device`, `elevated` and `mcp` are named in `ToolFamilies` and drawn in Settings with their
-  switches **disabled**, and `ReportBody()` reports them `false`. That is the safe shape: a family
-  offered to the harness but not built would fail on every call, which is worse than not offering
-  it. `files` first is the order in `docs/design/devices-as-hands.md` §1 and the one DOCA's Files
-  tab already consumes. `screen` is the cheapest next one — `DocaDesk.Capture` already does the
-  work for the `screenshot` desk tool — and `elevated` is the one that needs design before code
-  (UAC per action, plus the restore point design §4 asks for).
+- **`device` and `mcp` are not families here yet.** They are named in `ToolFamilies`, drawn
+  disabled in Settings, and reported `false`. On the desk, `device` (notifications, prompts) is the
+  push/prompt protocol that already runs, and `mcp` (forwarded servers) already has per-server
+  consent; reporting either as a granted family needs a decision about what the switch would *add*
+  — gate the prompts? all forwarded servers at once? — and nobody has made it. Harmless meanwhile:
+  DOCA exposes forwarded tools whatever the `mcp` grant says (`D-17`).
+
+- **UAC shows base64, not the command.** `elevated_run` passes the script as `-EncodedCommand` so
+  no quoting can change what runs, which means UAC's "Show more details" displays an unreadable
+  command line. The command is in the audit log before the prompt appears, but the person deciding
+  in the UAC dialog cannot see it there. A DocaDesk-drawn "about to ask for admin to run: …" toast
+  before the prompt is the fix; left out because it needs the WinUI side and a way to show it over
+  a full-screen app.
+
+- **`files_delete` bypasses the recycle bin**, and nothing is checkpointed (below). A wrong delete
+  from the agent is unrecoverable. `Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(…,
+  RecycleOption.SendToRecycleBin)` is one call on Windows; left out because it is Windows-only and
+  the Linux client would need its own trash (`gio trash`), which is a portability decision.
 
 - **`refresh` does not re-report caps.** §22.1 says the action should report caps *and* grants
   again, via `PATCH /devices/{id}`. There is no client method for that route — caps are sent once,

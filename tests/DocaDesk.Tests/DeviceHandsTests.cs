@@ -51,7 +51,7 @@ public class DeviceHandsTests
     {
         var c = FamilyConsent.InMemory();
         c.SetGranted(ToolFamilies.Files, true);
-        c.SetGranted(ToolFamilies.Shell, true);          // granted, but not implemented here yet
+        c.SetGranted(ToolFamilies.Device, true);         // granted, but not implemented as a family
 
         var body = c.ReportBody();
 
@@ -59,7 +59,7 @@ public class DeviceHandsTests
         Assert.Equal(9, body.Count);
         foreach (var f in ToolFamilies.All) Assert.True(body.ContainsKey(f));
         Assert.True(body[ToolFamilies.Files]);
-        Assert.False(body[ToolFamilies.Shell]);          // never offer what we cannot serve
+        Assert.False(body[ToolFamilies.Device]);         // never offer what we cannot serve
     }
 
     /* ── The files family: the shapes DOCA parses ────────── */
@@ -270,6 +270,157 @@ public class DeviceHandsTests
 
         // An action from a newer DOCA than this build knows.
         await hands.HandleControlAsync(new DeviceControlPayload { Id = "dc_8", Action = "teleport" });
+    }
+
+    /* ── D-19: a report must not re-trigger itself ───────── */
+
+    [Fact]
+    public void Only_the_persons_answer_raises_GrantsChanged_and_only_when_it_changes()
+    {
+        var c = FamilyConsent.InMemory();
+        int grants = 0, changes = 0;
+        c.GrantsChanged += () => grants++;
+        c.Changed += () => changes++;
+
+        c.SetGranted(ToolFamilies.Files, true);
+        c.SetGranted(ToolFamilies.Files, true);          // same answer again: nothing to report
+        Assert.Equal(1, grants);
+
+        // A report writes DOCA's revocations back for all nine families. When that raised the
+        // event the report listens to, one toggle fanned out without end (D-19).
+        foreach (var f in ToolFamilies.All) c.SetRevoked(f, false);
+        c.SetRevoked(ToolFamilies.Files, true);
+        c.SetRevoked(ToolFamilies.Files, true);
+        Assert.Equal(1, grants);
+        Assert.Equal(2, changes);                        // the grant, and one real revoke
+    }
+
+    /* ── D-17: an ungranted family is not listed ─────────── */
+
+    [Fact]
+    public void Only_usable_families_are_offered()
+    {
+        var c = FamilyConsent.InMemory();
+        var tools = FilesTools.Create(c, null).Concat(ShellTools.Create(c, null)).ToArray();
+
+        Assert.Empty(FamilyTool.Offered(tools, c));
+
+        c.SetGranted(ToolFamilies.Shell, true);
+        var names = FamilyTool.Offered(tools, c).Select(t => t.Name).ToArray();
+        Assert.Equal(["shell", "shell_job"], names);
+
+        c.SetRevoked(ToolFamilies.Shell, true);
+        Assert.Empty(FamilyTool.Offered(tools, c));
+    }
+
+    /* ── shell / processes ───────────────────────────────── */
+
+    [Fact]
+    public async Task Shell_answers_like_the_hosts_exit_code_then_output()
+    {
+        var shell = Family(ToolFamilies.Shell, "shell");
+        var r = await shell.CallAsync(new JsonObject { ["command"] = "echo héllo; exit 3" }, "test", default);
+
+        Assert.False(r.IsError, r.Text);                 // a non-zero exit is an answer, not an error
+        Assert.StartsWith("exit 3", r.Text);
+        Assert.Contains("héllo", r.Text);                // UTF-8 end to end, accents included
+    }
+
+    [Fact]
+    public async Task A_slow_command_is_stopped_and_says_to_use_background()
+    {
+        var shell = Family(ToolFamilies.Shell, "shell");
+        var r = await shell.CallAsync(new JsonObject { ["command"] = "Start-Sleep 30", ["timeoutSec"] = 1 }, "test", default);
+        Assert.Contains("Timed out after 1s", r.Text);
+    }
+
+    [Fact]
+    public async Task A_background_job_can_be_followed_and_stopped()
+    {
+        var c = FamilyConsent.InMemory();
+        c.SetGranted(ToolFamilies.Shell, true);
+        var tools = ShellTools.Create(c, null);
+        var shell = tools.Single(t => t.Name == "shell");
+        var job = tools.Single(t => t.Name == "shell_job");
+
+        var started = await shell.CallAsync(new JsonObject
+        {
+            ["command"] = "echo first; Start-Sleep 30",
+            ["background"] = true,
+        }, "test", default);
+        var id = System.Text.RegularExpressions.Regex.Match(started.Text, @"job_[0-9a-f]{8}").Value;
+        Assert.False(string.IsNullOrEmpty(id), started.Text);
+
+        string output = "";
+        for (var i = 0; i < 50 && !output.Contains("first"); i++)
+        {
+            await Task.Delay(100);
+            output = (await job.CallAsync(new JsonObject { ["action"] = "output", ["id"] = id }, "test", default)).Text;
+        }
+        Assert.Contains("first", output);
+
+        var stopped = await job.CallAsync(new JsonObject { ["action"] = "stop", ["id"] = id }, "test", default);
+        Assert.Contains("stopped", stopped.Text);
+    }
+
+    [Fact]
+    public async Task Processes_can_be_listed_and_the_app_will_not_stop_itself()
+    {
+        var c = FamilyConsent.InMemory();
+        c.SetGranted(ToolFamilies.Processes, true);
+        var tools = ProcessAppTools.Create(c, null);
+
+        var list = await tools.Single(t => t.Name == "processes_list").CallAsync(new JsonObject(), "test", default);
+        Assert.False(list.IsError, list.Text);
+        Assert.NotEmpty(JsonDocument.Parse(list.Text).RootElement.EnumerateArray());
+
+        var self = await tools.Single(t => t.Name == "processes_stop")
+            .CallAsync(new JsonObject { ["pid"] = Environment.ProcessId }, "test", default);
+        Assert.True(self.IsError);
+    }
+
+    [Fact]
+    public void Every_implemented_family_has_a_consent_sentence_and_no_tool_name_collides()
+    {
+        var c = FamilyConsent.InMemory();
+        var names = FilesTools.Create(c, null).Concat(ShellTools.Create(c, null))
+            .Concat(ProcessAppTools.Create(c, null)).Concat(WindowsTools.Create(c, null))
+            .Select(t => t.Name).ToList();
+
+        Assert.Equal(names.Count, names.Distinct().Count());
+        // Bare names: a device's own family is trusted by DOCA only without "__" (tools.js:62).
+        Assert.All(names, n => Assert.DoesNotContain("__", n));
+        foreach (var f in ToolFamilies.Implemented) Assert.NotEqual(f, ToolFamilies.Describe(f));
+    }
+
+    [Fact]
+    public void The_input_struct_is_the_size_SendInput_expects()
+    {
+        // SendInput rejects every call (ERROR_INVALID_PARAMETER) when cbSize is wrong, and that
+        // would only show on portal as "Windows refused the input". 40 bytes on x64, 28 on x86.
+        var t = typeof(WindowsTools).Assembly.GetType("DocaDesk.Mcp.Native+Input")!;
+        Assert.Equal(IntPtr.Size == 8 ? 40 : 28, System.Runtime.InteropServices.Marshal.SizeOf(t));
+    }
+
+    [Fact]
+    public async Task An_unknown_key_is_refused_before_anything_is_pressed()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var c = FamilyConsent.InMemory();
+        c.SetGranted(ToolFamilies.Input, true);
+        var keys = WindowsTools.Create(c, null).Single(t => t.Name == "input_keys");
+
+        // "ctrl+nosuchkey" must fail while resolving — before ctrl goes down and is left held.
+        var r = await keys.CallAsync(new JsonObject { ["keys"] = "ctrl+nosuchkey" }, "test", default);
+        Assert.True(r.IsError);
+        Assert.Contains("nosuchkey", r.Text);
+    }
+
+    private static IMcpTool Family(string family, string name)
+    {
+        var c = FamilyConsent.InMemory();
+        c.SetGranted(family, true);
+        return ShellTools.Create(c, null).Concat(ProcessAppTools.Create(c, null)).Single(t => t.Name == name);
     }
 
     /* ── helpers ─────────────────────────────────────────── */

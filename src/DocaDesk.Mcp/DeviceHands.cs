@@ -29,6 +29,10 @@ public sealed class DeviceHands
         _client = client;
         _consent = consent;
         _audit = audit;
+        // Owned here, not by the host app, so the Linux client inherits the right wiring: report
+        // when the person's answer changes, and never because DOCA's revocations were written back
+        // by a report — that loop is D-19.
+        _consent.GrantsChanged += () => _ = ReportGrantsAsync();
     }
 
     /// <summary>Drop and reopen the push stream (`reconnect`). DOCA closes its end too, 300 ms later.</summary>
@@ -154,8 +158,7 @@ public sealed class DeviceHands
                     if (AskForFamily is null) return $"cannot ask for {f}: no window";
                     var answer = await AskForFamily(f, ct).ConfigureAwait(false);
                     if (answer is null) return $"{f} was not put to the person";
-                    _consent.SetGranted(f, answer.Value);
-                    await ReportGrantsAsync(ct).ConfigureAwait(false);
+                    _consent.SetGranted(f, answer.Value);   // reported through GrantsChanged
                     return $"{f} {(answer.Value ? "allowed" : "refused")}";
                 }
 

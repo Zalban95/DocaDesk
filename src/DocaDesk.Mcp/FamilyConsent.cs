@@ -23,8 +23,16 @@ public sealed class FamilyConsent
     private readonly Action<string, bool> _write;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _revoked = new(StringComparer.Ordinal);
 
-    /// <summary>Raised when a grant or a revoke changes, so the report to DOCA and the UI can follow.</summary>
+    /// <summary>Raised when a grant or a revoke actually changes — for the UI and for re-listing tools.</summary>
     public event Action? Changed;
+
+    /// <summary>
+    /// Raised only when the <b>person's</b> answer changes — the one thing worth reporting to DOCA.
+    /// Kept apart from <see cref="Changed"/> because a report writes DOCA's revocations back here,
+    /// and when a revoke re-triggered the report, one toggle fanned out into an unbounded stream of
+    /// PUTs (ISSUES.md D-19). Both events fire only on a real change, for the same reason.
+    /// </summary>
+    public event Action? GrantsChanged;
 
     public FamilyConsent(Func<string, bool?> read, Action<string, bool> write)
     {
@@ -49,7 +57,9 @@ public sealed class FamilyConsent
     public void SetGranted(string family, bool granted)
     {
         if (!ToolFamilies.All.Contains(family, StringComparer.Ordinal)) return;   // DOCA drops unknown names; so do we
+        if (_read(family) == granted) return;
         _write(family, granted);
+        GrantsChanged?.Invoke();
         Changed?.Invoke();
     }
 
@@ -59,6 +69,7 @@ public sealed class FamilyConsent
     public void SetRevoked(string family, bool revoked)
     {
         if (!ToolFamilies.All.Contains(family, StringComparer.Ordinal)) return;
+        if (IsRevoked(family) == revoked) return;
         _revoked[family] = revoked;
         Changed?.Invoke();
     }
@@ -68,7 +79,7 @@ public sealed class FamilyConsent
     /// and actually implemented in this build.
     /// </summary>
     public bool IsUsable(string family) =>
-        ToolFamilies.ImplementedOnWindows.Contains(family, StringComparer.Ordinal)
+        ToolFamilies.Implemented.Contains(family, StringComparer.Ordinal)
         && Granted(family) == true
         && !IsRevoked(family);
 
@@ -81,6 +92,6 @@ public sealed class FamilyConsent
     public Dictionary<string, bool> ReportBody() =>
         ToolFamilies.All.ToDictionary(
             f => f,
-            f => ToolFamilies.ImplementedOnWindows.Contains(f, StringComparer.Ordinal) && Granted(f) == true,
+            f => ToolFamilies.Implemented.Contains(f, StringComparer.Ordinal) && Granted(f) == true,
             StringComparer.Ordinal);
 }
