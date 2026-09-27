@@ -155,6 +155,40 @@ small, and even if the person who wrote it knew.
 - **Do not repair anything found here without adding it to this file first.** The point of the
   review is the list, not the patches.
 
+### D-8 · A local server started later is invisible to DOCA until someone clicks ↺ Tools
+
+- **Status:** open — **patch landed, not yet run on portal.** Written 2026-09-27 from the code, on
+  al-Office-desk (Linux), where the portable half was built and tested.
+- **What happens.** `McpHttpListener` answers POST only and says `capabilities.tools = {}`, so it
+  never tells DOCA its tool list changed. Starting a local server (or granting its consent) changes
+  what `tools/list` returns, and DOCA keeps the old list until a person presses ↺ Tools
+  (`AGENTS.md` said so). DOCA 2.90.0+ can now hear it: when `initialize` says
+  `tools.listChanged`, `modules/mcp/client.js` holds the GET event stream open and re-lists on
+  `notifications/tools/list_changed`.
+- **Patch.** `McpHttpListener.cs`: `initialize` announces `listChanged: true`; a GET with
+  `Accept: text/event-stream` on the secret path — after the same remote, path and bearer gates as
+  a POST — is held open (`ServeEventsAsync`, a `: ping` every 25 s so a dead peer is noticed);
+  `NotifyToolsChanged()` writes the notification to every open stream. `SimpleHttpServer.cs`:
+  `HttpResponse` gained an optional `Stream` writer (default null — every existing response is
+  unchanged). `McpHost.cs`: `LocalMcpRegistry.ToolsChanged` also calls `NotifyToolsChanged()`.
+- **Tests.** `McpListChangedTests` (announce, stream, notify, close; wrong path refused). Run on
+  Linux against the portable projects: 23/23 with the listener and registry tests.
+- **To close on portal:** `dotnet test tests\DocaDesk.Tests` green; start a local server in
+  DocaDesk and see its tools reach DOCA's MCP card without ↺ Tools.
+
+### D-9 · The dashboard in DocaDesk asks for the password although the desk is paired
+
+- **Status:** open — **patch landed, not built** (the WinUI project cannot build off Windows).
+- **What happens.** DOCA 2.56.0+ (auth phase 1) signs a paired device's WebView in when the page
+  load carries `Authorization: Bearer <device token>` (`modules/auth/credentials.js` `fromDevice`,
+  capped by the device's scopes) and answers with its own session cookie; DocaMobile does this.
+  `DashboardHost` sent no header by the M2 rule, so the desk signed in by password as well.
+- **Patch.** `DashboardHost.NavigateHome()` sends the token on the **first** load of the server
+  root only (`NavigateWithWebResourceRequest`), then plain navigation; `MainWindow` hands it
+  `_session.Client?.Token`. M2's other halves stand: no script injection, no bridge, and the
+  token goes to nothing but the configured server, once.
+- **To close on portal:** build; unpair/pair or clear WebView data; the dashboard opens signed in.
+
 ---
 
 ## Fixed

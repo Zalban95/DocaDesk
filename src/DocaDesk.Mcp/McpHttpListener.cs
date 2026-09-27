@@ -199,11 +199,67 @@ public sealed class McpHttpListener : IAsyncDisposable
             }
         }
 
+        // Streamable HTTP's other half: the GET stream DOCA holds open (modules/mcp/client.js
+        // `_listen`, DOCA 2.90.0+) to hear notifications/tools/list_changed. Same gates as a POST.
+        if (string.Equals(req.Method, "GET", StringComparison.OrdinalIgnoreCase) &&
+            req.Headers.TryGetValue("Accept", out var accept) && accept.Contains("text/event-stream", StringComparison.OrdinalIgnoreCase))
+            return new HttpResponse(200, "text/event-stream", "", ServeEventsAsync);
+
         if (!string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase))
             return new HttpResponse(405, "text/plain", "POST only");
 
         var json = await DispatchJsonRpcAsync(req.Body).ConfigureAwait(false);
         return new HttpResponse(200, "application/json", json);
+    }
+
+    /* ── Notifications: the GET event stream ─────────────── */
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, System.Threading.Channels.Channel<string>> _streams = new();
+    private int _streamSeq;
+
+    /// <summary>How many event streams are open now (a client listening for tool changes).</summary>
+    public int OpenStreams => _streams.Count;
+
+    /// <summary>How often an idle stream carries a comment, so proxies and the far end know it is alive.</summary>
+    public TimeSpan StreamHeartbeat { get; set; } = TimeSpan.FromSeconds(25);
+
+    /// <summary>
+    /// Tell every listening client that the tool list changed — a local server started, stopped,
+    /// or had its consent changed. DOCA answers by calling tools/list again, so a tool that appears
+    /// later is seen without anyone pressing ↺ Tools.
+    /// </summary>
+    public void NotifyToolsChanged()
+    {
+        const string frame = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
+        foreach (var ch in _streams.Values) ch.Writer.TryWrite(frame);
+    }
+
+    private async Task ServeEventsAsync(Stream stream, CancellationToken ct)
+    {
+        var id = Interlocked.Increment(ref _streamSeq);
+        var ch = System.Threading.Channels.Channel.CreateUnbounded<string>();
+        _streams[id] = ch;
+        try
+        {
+            await WriteFrameAsync(stream, ": open\n\n", ct).ConfigureAwait(false);
+            while (!ct.IsCancellationRequested)
+            {
+                using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                wait.CancelAfter(StreamHeartbeat);
+                string frame;
+                try { frame = await ch.Reader.ReadAsync(wait.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { frame = ": ping\n\n"; }
+                await WriteFrameAsync(stream, frame, ct).ConfigureAwait(false);   // throws when the far end has gone
+            }
+        }
+        catch { /* the client went away, or the listener stopped */ }
+        finally { _streams.TryRemove(id, out _); }
+    }
+
+    private static async Task WriteFrameAsync(Stream stream, string frame, CancellationToken ct)
+    {
+        await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(frame), ct).ConfigureAwait(false);
+        await stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
     private bool IsRemoteAllowed(IPAddress? remote)
@@ -245,7 +301,8 @@ public sealed class McpHttpListener : IAsyncDisposable
                 "initialize" => new
                 {
                     protocolVersion = "2025-06-18",
-                    capabilities = new { tools = new { } },
+                    // listChanged: DOCA then holds the GET stream open and hears NotifyToolsChanged.
+                    capabilities = new { tools = new { listChanged = true } },
                     serverInfo = new { name = "DocaDesk", version = "0.1.0" },
                 },
                 "tools/list" => new { tools = ListTools() },

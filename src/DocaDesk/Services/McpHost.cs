@@ -41,7 +41,8 @@ public sealed class McpHost : IAsyncDisposable
         _creds = creds ?? (OperatingSystem.IsWindows() ? new DpapiCredentialStore() : new MemoryCredentialStore());
         _log = log ?? new RedactingLogger();
         _localServers = new LocalMcpRegistry(LocalMcpRegistry.DefaultStorePath(), _consent, _audit);
-        _localServers.ToolsChanged += () => Changed?.Invoke();
+        // Tell DOCA too: it holds our event stream open and lists the tools again (DOCA 2.90.0+).
+        _localServers.ToolsChanged += () => { Changed?.Invoke(); _listener?.NotifyToolsChanged(); };
         _session.EventReceived += OnPushEventAsync;
     }
 

@@ -376,6 +376,7 @@ public sealed partial class MainWindow : Window
                         ShowOnly(dashboard: true);
                 });
                 await _dashboard.InitializeAsync(new Uri(_session.ServerUrl));
+                _dashboard.UseDeviceToken(_session.Client?.Token);   // signs the WebView in like DocaMobile (D-9)
                 _dashboard.NavigateHome();
             }
             TitleText.Text = "DocaDesk";

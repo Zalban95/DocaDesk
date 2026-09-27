@@ -96,9 +96,10 @@ Hand-rolled JSON-RPC 2.0 over HTTP: POST in, JSON out, on `SimpleHttpServer` —
 chosen to avoid `HttpListener`'s URL ACL requirement. It answers `initialize`, `tools/list`,
 `tools/call` and `ping`, reporting `protocolVersion "2025-06-18"` and `serverInfo.name "DocaDesk"`
 (`:235-239`). **That shape is dictated by `modules/mcp/client.js`, not by a spec.** Read that file
-before changing anything here; it does not open a long-lived stream, so
-`notifications/tools/list_changed` is never heard and a tool appearing later is invisible to the
-dashboard until someone clicks **↺ Tools**.
+before changing anything here. Since DOCA 2.90.0 it holds the GET event stream open when
+`initialize` says `tools.listChanged`, which this listener now does: `NotifyToolsChanged()`
+(wired to `LocalMcpRegistry.ToolsChanged` in `McpHost.cs`) tells DOCA to list the tools again, so
+a local server started later reaches the dashboard without ↺ Tools (`ISSUES.md` → `D-8`).
 
 The security invariants are **all of them, not one of them**:
 
