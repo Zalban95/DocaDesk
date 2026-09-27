@@ -298,6 +298,34 @@ small, and even if the person who wrote it knew.
 - **How to close it:** on portal, start and stop `blender` from Settings three times while DocaDesk
   stays open; no `blender-mcp.exe` survives any stop.
 
+### D-25 · After the listener is away for about a minute, DOCA stops hearing tool changes for good
+
+- **Status:** open — **the cause is in DOCA**, recorded here because this is where it shows.
+  Seen on portal 2026-09-27 23:09, Al: *"I think docadesk stopped working properly."*
+- **Evidence.** The listener answered `tools/list` with **51** tools (every family granted at 19:20);
+  DOCA's `GET /api/v1/mcp/self` said `running`, **`toolCount: 38`** — the list from before the
+  grants — and no TCP connection from DOCA held the event stream. DOCA's client log shows re-lists
+  up to the afternoon's tests and nothing after. Restarting DOCA's client for `portal`
+  (`POST /api/mcp/portal/action {action:"restart"}`, the card's ↺) brought it to 51 at once and
+  reopened the stream (23:11:57).
+- **The cause.** DOCA `modules/mcp/client.js` `_listen`: a dropped GET stream is reopened
+  `while (… && failures < 6)` with backoff `min(30 s, 0.5 s · 2^failures)` — about a minute in total —
+  and then the loop **returns for good**, silently, while the client itself stays `running` because
+  each `tools/call` is its own POST. On this machine the listener was down 19:10–19:12 for the
+  `disconnect` test (`D-23`), which is enough; a DocaDesk restart that takes over a minute, a laptop
+  asleep, or the network drop at 21:40 would each do the same. From then on `D-8` is dead until
+  someone restarts the card — and nothing says so.
+- **Why D-8 still counts as fixed.** D-8's patch works and was measured working; this entry is about
+  DOCA giving up on it. The fix is not ours to make from this side: a device cannot ask DOCA to
+  reopen its stream (`PATCH /mcp/self` with the same URL does not restart the client — it ran at
+  19:12:11 and changed nothing).
+- **Fix shape, in DOCA.** Keep reopening while the client is `running`: drop the `failures < 6` cap
+  and let the 30 s backoff ceiling hold, and write a line to the client's log when the stream drops
+  and when it is back. Belt and braces: have a successful `tools/call` restart `_listen` if it has
+  stopped.
+- **How to close it:** with the DOCA fix, quit DocaDesk, wait two minutes, relaunch, grant or revoke a
+  family, and see DOCA's tool count follow without pressing ↺.
+
 ### D-18 · The other families: shell, processes, screen, input, apps, elevated
 
 - **Status:** open. Feature, tracked as an entry at Al's instruction; closes only when run here.
