@@ -43,6 +43,20 @@ public static class AppPrefs
 
     public static void SetToolConsent(string tool, bool enabled) => WriteBool("Tool." + tool, enabled);
 
+    /// <summary>
+    /// A tool family the person has been asked about (§22.1). <b>Null means never asked</b>, which
+    /// is what drives the one-time prompt — so this cannot use <see cref="ReadBool"/>'s fallback,
+    /// because "absent" and "refused" have to stay different. Absent is the first-run state; once
+    /// answered, the answer is remembered and is revocable in Settings.
+    /// </summary>
+    public static bool? GetFamilyGrant(string family)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(KeyPath);
+        return key?.GetValue("Family." + family) is int v ? v != 0 : null;
+    }
+
+    public static void SetFamilyGrant(string family, bool granted) => WriteBool("Family." + family, granted);
+
     private static bool ReadBool(string name, bool fallback)
     {
         using var key = Registry.CurrentUser.OpenSubKey(KeyPath, false);

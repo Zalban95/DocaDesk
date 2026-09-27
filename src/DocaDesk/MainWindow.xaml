@@ -98,6 +98,7 @@
                     <SelectorBar x:Name="SettingsNav" SelectionChanged="SettingsNav_SelectionChanged">
                         <SelectorBarItem Text="General" Tag="general" IsSelected="True" />
                         <SelectorBarItem Text="Desk tools" Tag="desk" />
+                        <SelectorBarItem Text="This device" Tag="hands" />
                         <SelectorBarItem Text="MCP servers" Tag="servers" />
                         <SelectorBarItem Text="Activity" Tag="activity" />
                     </SelectorBar>
@@ -340,6 +341,12 @@
                                 </Border>
                                 <StackPanel x:Name="LocalMcpRows" Spacing="4" Margin="0,8,0,0" />
                                 <TextBlock x:Name="LocalMcpEmpty" Text="No servers yet. Press Add server." Style="{StaticResource SettingDesc}" Margin="0,8,0,0" />
+                        </StackPanel>
+                        <StackPanel x:Name="HandsSection" Spacing="4" Visibility="Collapsed">
+                                <TextBlock Text="What DOCA's agents may do on this machine" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,0,0,4" />
+                                <TextBlock Text="Asked once per family, remembered, and revocable here at any time. A family you allow is offered to the harness like the host's own tools; one you refuse is never shown to it. Windows still asks for its own permission where it normally would." Style="{StaticResource SettingDesc}" TextWrapping="WrapWholeWords" Margin="0,0,0,4" />
+                                <StackPanel x:Name="FamilyRows" Spacing="4" />
+                                <TextBlock x:Name="HandsUsable" Style="{StaticResource SettingDesc}" TextWrapping="WrapWholeWords" Margin="0,12,0,0" />
                         </StackPanel>
                         <StackPanel x:Name="ActivitySection" Spacing="4" Visibility="Collapsed">
                                 <TextBlock Text="The last 40 audit entries, newest first. The full log is %LOCALAPPDATA%\DocaDesk\audit.jsonl." Style="{StaticResource SettingDesc}" Margin="0,0,0,8" />

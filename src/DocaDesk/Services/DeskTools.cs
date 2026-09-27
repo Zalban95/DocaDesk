@@ -24,6 +24,23 @@ public static class DeskTools
             new OpenUrlTool(audit),
         ];
     }
+
+    /// <summary>
+    /// The `screen` family (§22.1): the same two implementations as <c>list_windows</c> and
+    /// <c>screenshot</c>, under family names and behind the family grant. Built here because they
+    /// need <c>DocaDesk.Capture</c>, which the portable <c>DocaDesk.Mcp</c> cannot reference — and
+    /// wrapped rather than copied, so there is one capture path to fix, not two.
+    /// </summary>
+    public static IReadOnlyList<FamilyTool> CreateScreenFamily(
+        ScreenCapturer capturer,
+        Func<DocaClient?> clientFactory,
+        AuditLog audit,
+        Action? onCaptureFlash,
+        FamilyConsent consent) =>
+    [
+        new FamilyTool(ToolFamilies.Screen, new ListWindowsTool(), consent, "screen_windows"),
+        new FamilyTool(ToolFamilies.Screen, new ScreenshotTool(capturer, clientFactory, audit, onCaptureFlash), consent, "screen_capture"),
+    ];
 }
 
 file sealed class ListWindowsTool : IMcpTool

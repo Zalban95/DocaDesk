@@ -143,8 +143,8 @@ public class LocalMcpRegistryTests : IDisposable
     {
         // The whole point of the feature, both hops at once: Doca's real client →
         // this listener → a local stdio server. Skipped where the server repo is absent.
-        var clientJs = @"D:\doca\doca\DOCA\modules\mcp\client.js";
-        if (!File.Exists(clientJs) || !NodeAvailable()) return;
+        var clientJs = DocaRepo.ClientJs;                      // resolved, not a literal (D-11)
+        if (clientJs is null || !NodeAvailable()) return;
 
         await using var registry = NewRegistry(out var consent);
         registry.Add(StubSpec("stub") with { Consented = true });
@@ -153,7 +153,7 @@ public class LocalMcpRegistryTests : IDisposable
         await using var listener = await StartListenerAsync(registry, consent);
 
         var script = $$"""
-            const { McpClient } = require({{ToJsString(clientJs)}});
+            const { McpClient } = require({{ToJsString(clientJs!)}});
             (async () => {
               const c = new McpClient({ id: 'desk-forward', transport: 'http', url: {{ToJsString(listener.BoundUrl!)}} });
               await c.start();
@@ -162,6 +162,12 @@ public class LocalMcpRegistryTests : IDisposable
               const out = await c.callTool('stub__echo', { text: 'from doca' });
               if (out !== 'echo: from doca') throw new Error('unexpected reply: ' + out);
               console.log('OK');
+              // Since D-8, start() holds the GET event stream open, so node has a live handle and
+              // would never exit on its own. stop() aborts that stream — the same call a real
+              // consumer makes. process.exit(0) here instead aborts inside libuv's teardown
+              // ("Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)"), so the hop succeeds and
+              // the exit code still says failure (D-14).
+              c.stop();
             })().catch(e => { console.error(e); process.exit(1); });
             """;
 
@@ -449,10 +455,25 @@ public class LocalMcpRegistryTests : IDisposable
             CreateNoWindow = true,
         };
         using var p = System.Diagnostics.Process.Start(psi) ?? throw new InvalidOperationException("node failed to start");
-        var stdout = await p.StandardOutput.ReadToEndAsync();
-        var stderr = await p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
-        return (p.ExitCode, stdout, stderr);
+
+        // Bounded, because the unbounded version did not fail — it hung, and took the whole run
+        // with it for as long as anyone was willing to wait (D-14). A script that holds a handle
+        // open is now a failed test with its output, which is the thing a reader can act on.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var outTask = p.StandardOutput.ReadToEndAsync(deadline.Token);
+        var errTask = p.StandardError.ReadToEndAsync(deadline.Token);
+        try
+        {
+            await p.WaitForExitAsync(deadline.Token);
+            return (p.ExitCode, await outTask, await errTask);
+        }
+        catch (OperationCanceledException)
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            var so = outTask.IsCompletedSuccessfully ? outTask.Result : "";
+            var se = errTask.IsCompletedSuccessfully ? errTask.Result : "";
+            return (-1, so, se + "\nnode did not exit within 60s (it was killed).");
+        }
     }
 
     private static bool NodeAvailable()

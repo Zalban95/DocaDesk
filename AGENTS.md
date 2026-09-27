@@ -2,7 +2,7 @@
 
 ## What this is
 
-DocaDesk is the **Windows desktop client** for a DOCA server (`../doca/DOCA`, the "OpenClaw
+DocaDesk is the **Windows desktop client** for a DOCA server (`..\doca`, the "OpenClaw
 Dashboard" — a Node/Express app exposing a device-agnostic client API at `/api/v1`). It does three
 things: it shows the real dashboard in WebView2 with a tray icon, native notifications and a
 prompt window; it **hosts its own MCP server** over HTTP on the tailnet so DOCA's harness — which
@@ -10,7 +10,7 @@ runs on a Linux host — has tools that act on *this* machine; and it **forwards
 on this Windows machine** through that same listener. The third is the newest part and the least
 documented anywhere else.
 
-DOCA is the authority for the protocol. `d:\doca\doca\DOCA\PROTOCOL.md` is normative,
+DOCA is the authority for the protocol. `d:\doca\doca\PROTOCOL.md` is normative,
 `modules/mcp/client.js` is the exact code that calls this app's listener, and
 `.agent/DOCA_DESK_BRIEF.md` plus `.agent/DOCA_DESK_ADDENDUM_MCP.md` are the briefs this repo was
 built from — the addendum supersedes the brief **on MCP registration only**.
@@ -26,14 +26,15 @@ push loop has two other implementations to check against before inventing a thir
 |---|---|
 | `src\DocaDesk` | The WinUI 3 app: window, tray, WebView2 host, prompt window, notifications, consent UI, settings, and `Services\McpHost.cs` which owns the listener's lifecycle |
 | `src\DocaDesk.Core` | Protocol client: models, `DocaClient`, DPAPI credential store, push loop and cursor, error mapping, `RedactingLogger`. No UI dependencies. **`TreatWarningsAsErrors` is set for this project alone** (`Directory.Build.props:6`) |
-| `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, and the local-server registry. Must not reference WinUI — the listener has to be startable from a test with no window |
+| `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, the local-server registry, and the **tool families** this device offers the harness (`ToolFamilies`, `FamilyConsent`, `FamilyTool`, `DeviceHands`, and one file of tools per family group). Must not reference WinUI — the listener has to be startable from a test with no window, and the Linux client reuses the families unchanged |
 | `src\DocaDesk.Capture` | `Windows.Graphics.Capture` with a `PrintWindow`/GDI fallback, encoding and downscaling |
-| `tests\DocaDesk.Tests` | xUnit, 69 tests |
+| `tests\DocaDesk.Tests` | xUnit, 101 tests |
 
-**`DocaDesk.sln` contains only two of the five projects** — `src\DocaDesk.Capture` and
-`src\DocaDesk`. `DocaDesk.Core`, `DocaDesk.Mcp` and `tests\DocaDesk.Tests` are reached through
-`ProjectReference` alone and are not solution members. Verify with `dotnet sln list` before
-assuming a solution-wide command touched what you think it did.
+**`DocaDesk.sln` now contains all five projects** (`dotnet sln list`, verified on portal
+2026-09-27). It used to hold only `src\DocaDesk.Capture` and `src\DocaDesk`, and both this file and
+`TODO.md` went on saying so long after that changed — which is why the paragraph below about
+`dotnet test` was wrong too. **This claim and the test count are the two sentences here most likely
+to rot: run `dotnet sln list` and read the suite's own total rather than trusting either.**
 
 ## Start here: `ISSUES.md` and `TODO.md`
 
@@ -67,9 +68,12 @@ MCP server definition. Today that holds because the host-facing surface is `PATC
 
 ## Running / building
 
-- `dotnet build DocaDesk.sln` builds Capture and the app; Core and Mcp come along transitively.
-- **`dotnet test` with no argument builds nothing, runs nothing, and exits 0** — because the test
-  project is not in the solution. Always name it: `dotnet test tests\DocaDesk.Tests`.
+- `dotnet build DocaDesk.sln` builds all five projects.
+- **`dotnet test` with no argument now runs the suite** — the test project is a solution member, so
+  bare `dotnet test` reports `Passed: 101`. This file used to say it *"builds nothing, runs nothing,
+  and exits 0"*, which was true once and is the kind of stale warning that makes a reader distrust a
+  green run. Naming the project — `dotnet test tests\DocaDesk.Tests` — is still the habit worth
+  keeping: it is faster and unambiguous.
 - SDK is pinned to `9.0.318` with `rollForward: latestFeature` (`global.json`).
 - The app project targets **`net9.0-windows10.0.19041.0`** with `TargetPlatformMinVersion`
   `10.0.17763.0`, `Platforms x64;ARM64`, defaulting to `x64` / `win-x64`
@@ -96,9 +100,10 @@ Hand-rolled JSON-RPC 2.0 over HTTP: POST in, JSON out, on `SimpleHttpServer` —
 chosen to avoid `HttpListener`'s URL ACL requirement. It answers `initialize`, `tools/list`,
 `tools/call` and `ping`, reporting `protocolVersion "2025-06-18"` and `serverInfo.name "DocaDesk"`
 (`:235-239`). **That shape is dictated by `modules/mcp/client.js`, not by a spec.** Read that file
-before changing anything here; it does not open a long-lived stream, so
-`notifications/tools/list_changed` is never heard and a tool appearing later is invisible to the
-dashboard until someone clicks **↺ Tools**.
+before changing anything here. Since DOCA 2.90.0 it holds the GET event stream open when
+`initialize` says `tools.listChanged`, which this listener now does: `NotifyToolsChanged()`
+(wired to `LocalMcpRegistry.ToolsChanged` in `McpHost.cs`) tells DOCA to list the tools again, so
+a local server started later reaches the dashboard without ↺ Tools (`ISSUES.md` → `D-8`).
 
 The security invariants are **all of them, not one of them**:
 
@@ -194,13 +199,79 @@ Keep it that way. The remaining rules:
 - The store is written tmp → `.bak` → move (`:306-316`), and a corrupt file is recorded in the
   audit log and otherwise ignored (`:282-303`). A first run with no file at all is the normal case.
 
+## Devices as hands (`src\DocaDesk.Mcp\` — `ToolFamilies`, `FamilyConsent`, `DeviceHands`, `FilesTools`)
+
+`PROTOCOL.md` §22.1 and `docs/design/devices-as-hands.md`: a paired device offers the harness the
+same **tool families** the host has, as far as its OS allows. All four files are **WinUI-free and in
+`DocaDesk.Mcp` on purpose** — the Linux client is meant to reuse them unchanged (design §6 step 3).
+Only the Settings page and the HKCU storage live in `src\DocaDesk`.
+
+- **The nine family names are DOCA's** (`modules/devices-control.js:25`), and a grants report keeps
+  only the keys whose value is a boolean (`:89`). So an unknown name is dropped **in silence** — a
+  typo is not an error, it is a family that never gets offered and no message saying why. `FamilyConsent.ReportBody()`
+  therefore sends **all nine explicitly**, `false` included; omitting one leaves whatever DOCA held.
+- **Granted and revoked are two facts, not one flag.** *Granted* is the person's answer, asked once
+  per family in our UI and remembered in HKCU as `Family.<name>` — where **absent ≠ false**, which
+  is why `AppPrefs.GetFamilyGrant` returns `bool?` and does not use `ReadBool`'s fallback: "never
+  asked" is what drives the prompt. *Revoked* is DOCA taking a family back (`device.control`
+  `revoke`/`restore`). A `restore` returns the family to whatever the person had said — it can never
+  widen access they did not give. Same rule as `mcp.listener` `stop`: a host request is not
+  permission to overwrite an explicit local choice.
+- **Every `device.control` action is acked, including the ones that fail.** DOCA keeps a 20-entry
+  history with `ackAt`/`ok`/`detail` and that is what a person reads in Settings → Devices. Note
+  that **DOCA does half the work itself** — it closes the stream for `reconnect`/`disconnect` and
+  ends the device's sessions for `disconnect` (`devices-control.js:63-65`) — so an action *looks*
+  successful against a client that handles nothing. **The ack is the only evidence this side ran
+  it.** The ack is deliberately not sent under the action's own cancellation token, because
+  `disconnect` is precisely the action that tears that token down.
+- **`FilesTools` answers `files_list/read/write/mkdir/move/copy/delete`** for DOCA's Files tab
+  (`modules/device-files.js`). Three shapes are dictated by that file and each fails *quietly* if
+  guessed: results are **JSON text** (`JSON.parse`, else 502); a refusal is **`isError: true`**
+  (`client.js` prefixes `Error: `, which `device-files.js:44` turns into a 400 — a refusal returned
+  as plain JSON would parse as *success*); and the names are **bare**, never `<server>__<tool>`.
+  Serialisation deliberately does **not** use `DocaJson.Options`, whose `WhenWritingNull` would drop
+  the `size: null` on a folder that the host's own shape includes.
+- **There is no path jail, and that is a decision.** Design §1 gives DocaDesk files *"everywhere the
+  user can"*; the gates are the one-time grant plus DOCA's revoke. A root would also break the Files
+  tab's machine selector.
+- **The family tools gate on `FamilyConsent`, not `ToolConsent`.** They are registered in
+  `ToolConsent` as always-on and refuse internally, because a family is one question asked once —
+  not seven switches. Do not "fix" this into per-tool toggles without reading design §2.
+- **Implemented on Windows: `files`, `shell`, `processes`, `screen`, `input`, `apps`, `elevated`**
+  (`ToolFamilies.Implemented`, per OS; Linux: `files`, `shell`, `processes`, `apps`). `device` and
+  `mcp` are reported `false` everywhere and drawn disabled — see `TODO.md`.
+- **A family's tools are listed only while it is usable** (`FamilyTool.Offered`, composed into
+  `DynamicTools` in `McpHost.StartAsync`). DOCA's `modules/mcp/tools.js` exposes every tool a
+  device lists, whatever its grants, so this listener is what makes "a tool the device would refuse
+  is not shown" true (`ISSUES.md` → `D-17`). `FamilyTool` refuses a call anyway, for the race
+  between a list and a call. A grant or revoke calls `NotifyToolsChanged()`, so DOCA re-lists.
+- **Names.** `shell`/`shell_job` are the **host's own names and arguments**, on purpose — one set of
+  names on every machine. The rest (`processes_*`, `screen_windows/capture`, `input_*`, `apps_open`,
+  `elevated_run`) follow `files_*` and are **not in `PROTOCOL.md` yet**: this client's proposal,
+  which the Linux client must copy exactly (`D-18`).
+- **Where each lives.** Portable in `DocaDesk.Mcp`: `ShellTools`, `ProcessAppTools`. Windows-only but
+  WinUI-free, also in `DocaDesk.Mcp`: `WindowsTools` (`SendInput`; UAC via `runas`). In the app:
+  the two `screen` tools, because they need `DocaDesk.Capture` — they **wrap** `list_windows` and
+  `screenshot`, so there is one capture path.
+- **`elevated_run` goes through UAC every call**, and a declined prompt (`ERROR_CANCELLED`, 1223) is
+  an answer the agent reads. The command is written to the audit log *before* the prompt, because
+  UAC cannot show it (it travels as `-EncodedCommand`).
+- **`FamilyConsent` raises events only on a real change, and `GrantsChanged` is separate from
+  `Changed`.** A report writes DOCA's revocations back into it; when that raised the event the report
+  listens to, one toggle fanned out without end (`D-19`). `DeviceHands` owns the report-on-change
+  wiring so the Linux client inherits it.
+- Background shell jobs log to `%TEMP%\docadesk-job_*.log` and are **killed on quit**
+  (`ShellTools.StopAllJobs` from `McpHost.DisposeAsync`).
+
 ## Host registration (`src\DocaDesk\Services\McpHost.cs`)
 
 - **One reconciliation path**, `ReconcileRegistrationAsync` (`:163-242`):
-  `GET /api/v1/mcp/self` → 404 means offer; 200 with a different URL *or* without an
-  `Authorization` header key means `PATCH /mcp/self { url, headers }`; 200 that matches means
-  nothing to do. `RegenerateSecretAsync` does not duplicate any of it — if the listener was
-  running it restarts, and `StartAsync` reconciles (`:140-154`).
+  `GET /api/v1/mcp/self` → 404 means offer; **200 always means `PATCH /mcp/self { url, headers }`**.
+  It used to compare first and skip the write when the URL matched and a header key was present —
+  do not put that back. `GET` **masks header values**, so a rotated bearer is indistinguishable from
+  a matching one, and skipping the write is exactly how a live listener ends up answering 404 to the
+  host that still holds the old token. `RegenerateSecretAsync` does not duplicate any of it — if the
+  listener was running it restarts, and `StartAsync` reconciles (`:140-154`).
 - **`WaitingForAccept` is a normal state, not an error** (`:13-20`, `:193-198`). The offer is
   recorded with a 202 and then a human clicks accept in the DOCA dashboard; until then the UI says
   "Waiting to be accepted in the DOCA dashboard. Not an error." Do not turn it into an error
@@ -231,13 +302,14 @@ Everything durable lives under `%LOCALAPPDATA%\DocaDesk\`, outside the repo:
 |---|---|
 | `credentials\<sha256 of key>.bin` | `DpapiCredentialStore`, DPAPI `CurrentUser` scope (`CredentialStore.cs:23-31,64-68`). Keys are `device.token`, `mcp.path.secret`, `mcp.bearer.token`, `tls.pin.sha256`, `server.url` (`:97-101`) |
 | `mcp-servers.json` (+ `.bak`) | `LocalMcpRegistry.DefaultStorePath()` (`:72-75`) |
-| `mcp-url.txt` | `App.OnLaunched` — **only on the auto-start path** (`App.xaml.cs:65-72`). Flipping the listener on in Settings does not write it, so a stale file is normal |
+| `mcp-url.txt` | **Nothing — and `App.OnLaunched` now deletes it.** An old version wrote the listener URL here, path secret in clear; the write is gone and the comment in `App.xaml.cs` says why. Removing the write left the file behind on machines that had one, holding a live secret (`ISSUES.md` → `D-12`), so startup deletes it best-effort |
 | `audit.jsonl` (+ `.1`) | `AuditLog`, appended per entry, 500 kept in memory, rotated at 2 MB (`AuditLog.cs:23-29,76-85`) |
 | `event_cursor.txt` | `FileCursorStore` (`CursorAndWatchdog.cs:15-25`) |
 | `tray.ico` | `TrayHost`, generated at runtime rather than checked in |
 
 App-local booleans are HKCU `Software\DocaDesk` REG_DWORDs, not a file: `StartMinimized`,
-`NotifyPrompts`, `NotifyAlerts`, `McpAutoStart`, and `Tool.<name>` per desk tool (`AppPrefs.cs`).
+`NotifyPrompts`, `NotifyAlerts`, `McpAutoStart`, `Tool.<name>` per desk tool, and `Family.<name>` per
+tool family — the last one read as `bool?`, because absent means *never asked* (`AppPrefs.cs`).
 
 **The audit log is not redacted, and that is the design.** `RedactingLogger` covers `Bearer …`,
 `doca_…` tokens and `/mcp/<secret>` (`RedactingLogger.cs:17-19,36-48`), but `AuditLog.Add` writes
@@ -246,7 +318,7 @@ its summary verbatim — brief §6.1 requires the log to stay useful. The conseq
 
 ## Tests (`tests\DocaDesk.Tests`)
 
-`dotnet test tests\DocaDesk.Tests` — 69 tests, no server, no display, no API key, no installed MCP
+`dotnet test tests\DocaDesk.Tests` — 101 tests, no server, no display, no API key, no installed MCP
 server.
 
 - **`LocalMcpRegistryTests` writes a real stdio MCP server as a `const string` of JavaScript
@@ -254,22 +326,33 @@ server.
   — handshake, tool list, a successful call, a tool that reports failure, one that never answers,
   one that exits mid-call, persistence across a simulated app restart — is covered with nothing
   installed. `--fail` makes the stub exit immediately to exercise the failure path.
-- **`Docas_own_client_can_call_a_server_this_machine_runs` (`:128-157`) drives DOCA's real
-  `modules/mcp/client.js`**: node `require`s
-  `D:\doca\doca\DOCA\modules\mcp\client.js`, points an `McpClient` with `transport: 'http'` at the
-  listener, and calls `stub__echo` through it — both hops in one test.
+- **`Docas_own_client_can_call_a_server_this_machine_runs` drives DOCA's real
+  `modules/mcp/client.js`**: node `require`s it, points an `McpClient` with `transport: 'http'` at
+  the listener, and calls `stub__echo` through it — both hops in one test.
   `McpDocaClientHandshakeTests` does the same for `initialize` / `tools/list`. This is the highest
   value test in the suite: if it passes the dashboard will work, and if you only assert against
   your own expectations you will discover a handshake mismatch by hand in the UI.
-- **A test that cannot run returns early, so it is reported as *passed*, not skipped.** There is no
-  `Assert.Skip` anywhere; every guard is a bare `return` — `node` missing
-  (`LocalMcpRegistryTests.cs:339`), the sibling DOCA repo absent
-  (`McpDocaClientHandshakeTests.cs:15-19`), `Windows.Graphics.Capture` unsupported
-  (`GraphicsCaptureGrabberTests.cs:12-15`), non-Windows DPAPI (`CoreBehaviorTests.cs:82`),
-  `DOCADESK_E2E_*` unset (`LiveSmokeTests.cs:20-23`). `Skipped: 0` in the summary is therefore
-  true and meaningless. On a machine without node, most of the local-MCP coverage evaporates
-  silently. If you need to know a specific test really executed, run it under `--filter` and look
-  at its duration.
+  - **Never hardcode the path to it.** `DocaRepo.ClientJs` resolves the sibling checkout
+    (`DOCA_REPO`, else walk up and try both `doca\` and the old `doca\DOCA\`). A literal
+    `D:\doca\doca\DOCA\…` sat there after DOCA's root moved and quietly disarmed **both** tests for
+    weeks, D-8's handshake change included (`ISSUES.md` → `D-11`).
+  - **Both scripts end with `c.stop()`, and that is load-bearing.** Since D-8 the listener holds the
+    GET event stream open, so DOCA's client keeps a live handle and node does **not** exit by
+    itself; `stop()` aborts the stream. `process.exit(0)` instead aborts inside libuv
+    (`!(handle->flags & UV_HANDLE_CLOSING)`), which reads as a failure after a successful call.
+    The node runners are bounded at 60 s and kill the tree, because the unbounded version hung the
+    whole run rather than failing (`ISSUES.md` → `D-14`).
+- **A test that cannot run returns early, so it is reported as *passed*, not skipped.** Every guard
+  is a bare `return` — `node` missing (`LocalMcpRegistryTests.cs`), the sibling DOCA repo absent,
+  `Windows.Graphics.Capture` unsupported (`GraphicsCaptureGrabberTests.cs:12-15`), non-Windows DPAPI
+  (`CoreBehaviorTests.cs:82`), `DOCADESK_E2E_*` unset (`LiveSmokeTests.cs:20-23`). `Skipped: 0` in
+  the summary is therefore true and meaningless. **`Assert.Skip` is not available to fix this:**
+  `TODO.md` claimed xUnit has had it since 2.9 and the project is on 2.9.2, but `Assert.SkipUnless`
+  and friends do not exist in `xunit.assert` 2.9.2 — `error CS0117` — they are xUnit v3. Making the
+  summary honest means migrating, which is why the guards are still bare returns. On a machine
+  without node, most of the local-MCP coverage evaporates silently. If you need to know a specific
+  test really executed, run it under `--filter` and look at its duration: 2 ms means it returned,
+  ~200 ms means node ran.
 - The live tests are gated on `DOCADESK_E2E_URL` / `DOCADESK_E2E_TOKEN`
   (`McpToolsIntegrationTests`, `LiveSmokeTests`). Note that the token-file fallback in
   `McpToolsIntegrationTests:22-25` resolves one directory too high and never fires — see `TODO.md`.
@@ -329,7 +412,7 @@ server.
 ## Future goals
 
 **The roadmap for this repo is not in this repo.** It is
-`d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, which is explicitly *a proposal
+`d:\doca\doca\docs\proposals\hub-any-client-any-mcp.md`, which is explicitly *a proposal
 awaiting approval — nothing in it is implemented*. Read it before proposing architecture; it
 already contains the answers to most of the obvious questions.
 

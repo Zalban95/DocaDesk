@@ -40,7 +40,52 @@ public sealed partial class MainWindow : Window
     {
         _mcp = mcp;
         _mcp.Changed += () => DispatcherQueue.TryEnqueue(RefreshMcpUi);
+        // DOCA's "Ask again" (device.control ask). Without this the action was acked "no window"
+        // and the person was never asked (D-22).
+        _mcp.Hands.AskForFamily = AskFamilyAsync;
         RefreshMcpUi();
+    }
+
+    /// <summary>
+    /// The one-time question, asked again at DOCA's request. The safe button has focus, as in the
+    /// remove dialog. Dismissing it answers nothing (null), which is acked as "not put to the person"
+    /// rather than read as a refusal or a grant.
+    /// </summary>
+    private Task<bool?> AskFamilyAsync(string family, CancellationToken ct)
+    {
+        var tcs = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    // The window may be hidden in the tray; a dialog in a hidden window asks nobody.
+                    AppWindow.Show();
+                    Activate();
+                    var dlg = new ContentDialog
+                    {
+                        Title = "DOCA asks again",
+                        Content = $"Let DOCA's agents {ToolFamilies.Describe(family)}?\n\nYou can change this any time in Settings → This device.",
+                        PrimaryButtonText = "Allow",
+                        SecondaryButtonText = "Don't allow",
+                        CloseButtonText = "Not now",
+                        DefaultButton = ContentDialogButton.Close,
+                        XamlRoot = Content.XamlRoot,
+                    };
+                    tcs.TrySetResult(await dlg.ShowAsync() switch
+                    {
+                        ContentDialogResult.Primary => true,
+                        ContentDialogResult.Secondary => false,
+                        _ => null,
+                    });
+                }
+                catch
+                {
+                    // Another dialog already open, or the window closing: not asked, and said so.
+                    tcs.TrySetResult(null);
+                }
+            }))
+            tcs.TrySetResult(null);
+        return tcs.Task;
     }
 
     private void RefreshMcpUi()
@@ -376,6 +421,7 @@ public sealed partial class MainWindow : Window
                         ShowOnly(dashboard: true);
                 });
                 await _dashboard.InitializeAsync(new Uri(_session.ServerUrl));
+                _dashboard.UseDeviceToken(_session.Client?.Token);   // signs the WebView in like DocaMobile (D-9)
                 _dashboard.NavigateHome();
             }
             TitleText.Text = "DocaDesk";
@@ -447,6 +493,10 @@ public sealed partial class MainWindow : Window
     {
         if (_session is null) return;
         await _session.RefreshConnectionAsync();
+        // Refreshing the session was all this did, and EnsureDashboardAsync deliberately builds
+        // the host only once — so after a failed first load Retry re-navigated nothing and the
+        // WebView kept showing "Dashboard offline" however often it was pressed (D-10).
+        _dashboard?.NavigateHome();
     }
 
     private async void Unpair_Click(object sender, RoutedEventArgs e)
@@ -508,8 +558,97 @@ public sealed partial class MainWindow : Window
         var tag = sender.SelectedItem?.Tag as string;
         GeneralSection.Visibility = tag is "general" or null ? Visibility.Visible : Visibility.Collapsed;
         DeskSection.Visibility = tag == "desk" ? Visibility.Visible : Visibility.Collapsed;
+        HandsSection.Visibility = tag == "hands" ? Visibility.Visible : Visibility.Collapsed;
         ServersSection.Visibility = tag == "servers" ? Visibility.Visible : Visibility.Collapsed;
         ActivitySection.Visibility = tag == "activity" ? Visibility.Visible : Visibility.Collapsed;
+        if (tag == "hands") RefreshFamilies();
+    }
+
+    /// <summary>
+    /// One row per family (§22.1). Built in code rather than written out nine times in XAML, so it
+    /// cannot drift from <see cref="ToolFamilies.All"/> — which is the list DOCA validates against,
+    /// and a name that does not match is dropped there in silence.
+    /// </summary>
+    private void RefreshFamilies()
+    {
+        if (_mcp is null || FamilyRows is null) return;
+        FamilyRows.Children.Clear();
+
+        foreach (var family in ToolFamilies.All)
+        {
+            var implemented = ToolFamilies.Implemented.Contains(family, StringComparer.Ordinal);
+            var revoked = _mcp.Families.IsRevoked(family);
+            var granted = _mcp.Families.Granted(family) == true;
+
+            var label = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            label.Children.Add(new TextBlock
+            {
+                Text = family,
+                Style = StyleOf("BodyStrongTextBlockStyle"),
+            });
+            label.Children.Add(new TextBlock
+            {
+                Text = Describe(family, implemented, revoked),
+                Style = StyleOf("SettingDesc"),
+                TextWrapping = TextWrapping.WrapWholeWords,
+            });
+
+            var toggle = new ToggleSwitch
+            {
+                IsOn = granted,
+                Tag = family,
+                MinWidth = 0,
+                VerticalAlignment = VerticalAlignment.Center,
+                // A family this build cannot serve would report false however it were set, so an
+                // enabled switch would be a promise the machine cannot keep.
+                IsEnabled = implemented,
+            };
+            toggle.Toggled += Family_Toggled;
+
+            var grid = new Grid { ColumnSpacing = 16 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(toggle, 1);
+            grid.Children.Add(label);
+            grid.Children.Add(toggle);
+
+            FamilyRows.Children.Add(new Border
+            {
+                Style = StyleOf("Card"),
+                Child = grid,
+            });
+        }
+
+        var usable = _mcp.Hands.Usable;
+        HandsUsable.Text = usable.Count > 0
+            ? "DOCA is offering the harness: " + string.Join(", ", usable) + "."
+            : "DOCA is offering the harness nothing from this machine yet.";
+    }
+
+    /// <summary>
+    /// A style from this window's own root resources, else the application's. `Card` and
+    /// `SettingDesc` live in MainWindow.xaml's root Grid, not App.xaml; asking the application for
+    /// them threw, App's UnhandledException swallowed it, and This device drew nothing (D-20).
+    /// </summary>
+    private Style StyleOf(string key) =>
+        (Style)(Content is FrameworkElement root && root.Resources.ContainsKey(key)
+            ? root.Resources[key]
+            : Application.Current.Resources[key]);
+
+    private static string Describe(string family, bool implemented, bool revoked)
+    {
+        var what = "Let DOCA's agents " + ToolFamilies.Describe(family) + ".";
+        if (!implemented) return what + " Not available in this build yet.";
+        if (revoked) return what + " Revoked in DOCA — it will not be offered until it is restored there.";
+        return what;
+    }
+
+    private void Family_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_mcp is null || sender is not ToggleSwitch t || t.Tag is not string family) return;
+        _mcp.Families.SetGranted(family, t.IsOn);
+        // The report to DOCA rides FamilyConsent.Changed; only the wording below is ours to redraw.
+        HandsUsable.Text = "Telling DOCA…";
     }
 
     private void SettingsBack_Click(object sender, RoutedEventArgs e)
