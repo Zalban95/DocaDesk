@@ -40,7 +40,52 @@ public sealed partial class MainWindow : Window
     {
         _mcp = mcp;
         _mcp.Changed += () => DispatcherQueue.TryEnqueue(RefreshMcpUi);
+        // DOCA's "Ask again" (device.control ask). Without this the action was acked "no window"
+        // and the person was never asked (D-22).
+        _mcp.Hands.AskForFamily = AskFamilyAsync;
         RefreshMcpUi();
+    }
+
+    /// <summary>
+    /// The one-time question, asked again at DOCA's request. The safe button has focus, as in the
+    /// remove dialog. Dismissing it answers nothing (null), which is acked as "not put to the person"
+    /// rather than read as a refusal or a grant.
+    /// </summary>
+    private Task<bool?> AskFamilyAsync(string family, CancellationToken ct)
+    {
+        var tcs = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    // The window may be hidden in the tray; a dialog in a hidden window asks nobody.
+                    AppWindow.Show();
+                    Activate();
+                    var dlg = new ContentDialog
+                    {
+                        Title = "DOCA asks again",
+                        Content = $"Let DOCA's agents {ToolFamilies.Describe(family)}?\n\nYou can change this any time in Settings → This device.",
+                        PrimaryButtonText = "Allow",
+                        SecondaryButtonText = "Don't allow",
+                        CloseButtonText = "Not now",
+                        DefaultButton = ContentDialogButton.Close,
+                        XamlRoot = Content.XamlRoot,
+                    };
+                    tcs.TrySetResult(await dlg.ShowAsync() switch
+                    {
+                        ContentDialogResult.Primary => true,
+                        ContentDialogResult.Secondary => false,
+                        _ => null,
+                    });
+                }
+                catch
+                {
+                    // Another dialog already open, or the window closing: not asked, and said so.
+                    tcs.TrySetResult(null);
+                }
+            }))
+            tcs.TrySetResult(null);
+        return tcs.Task;
     }
 
     private void RefreshMcpUi()
@@ -539,12 +584,12 @@ public sealed partial class MainWindow : Window
             label.Children.Add(new TextBlock
             {
                 Text = family,
-                Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"],
+                Style = StyleOf("BodyStrongTextBlockStyle"),
             });
             label.Children.Add(new TextBlock
             {
                 Text = Describe(family, implemented, revoked),
-                Style = (Style)Application.Current.Resources["SettingDesc"],
+                Style = StyleOf("SettingDesc"),
                 TextWrapping = TextWrapping.WrapWholeWords,
             });
 
@@ -569,7 +614,7 @@ public sealed partial class MainWindow : Window
 
             FamilyRows.Children.Add(new Border
             {
-                Style = (Style)Application.Current.Resources["Card"],
+                Style = StyleOf("Card"),
                 Child = grid,
             });
         }
@@ -579,6 +624,16 @@ public sealed partial class MainWindow : Window
             ? "DOCA is offering the harness: " + string.Join(", ", usable) + "."
             : "DOCA is offering the harness nothing from this machine yet.";
     }
+
+    /// <summary>
+    /// A style from this window's own root resources, else the application's. `Card` and
+    /// `SettingDesc` live in MainWindow.xaml's root Grid, not App.xaml; asking the application for
+    /// them threw, App's UnhandledException swallowed it, and This device drew nothing (D-20).
+    /// </summary>
+    private Style StyleOf(string key) =>
+        (Style)(Content is FrameworkElement root && root.Resources.ContainsKey(key)
+            ? root.Resources[key]
+            : Application.Current.Resources[key]);
 
     private static string Describe(string family, bool implemented, bool revoked)
     {

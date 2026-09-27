@@ -199,6 +199,72 @@ public class McpDocaClientHandshakeTests
         finally { File.Delete(tmp); }
     }
 
+    /// <summary>
+    /// D-8 end to end: DOCA's real client, holding our GET stream, re-lists when told the tools
+    /// changed. The unit test in McpListChangedTests checks the bytes we write; this checks that the
+    /// other side acts on them — which is what "reaches the MCP card without ↺ Tools" means.
+    /// </summary>
+    [Fact]
+    public async Task Docas_client_relists_when_the_listener_says_the_tools_changed()
+    {
+        var clientJs = DocaRepo.ClientJs;
+        if (clientJs is null) return;
+
+        var late = false;
+        var consent = new ToolConsent();
+        consent.Register("late", true);
+        McpHttpListener? listener = null;
+        listener = new McpHttpListener(new McpListenerOptions
+        {
+            PathSecret = McpHttpListener.NewPathSecret(),
+            Tools = [new HelloTool()],
+            DynamicTools = () => late ? [new NamedTool("late")] : [],
+            Consent = consent,
+        });
+        await using var _ = listener;
+        await listener.StartLoopbackForTestsAsync(FreePort());
+
+        // The node side waits for the stream, then reports how long "late" took to appear.
+        var script = $$"""
+            const { McpClient } = require({{ToJsString(clientJs!)}});
+            (async () => {
+              const c = new McpClient({ id: 'desk-relist', transport: 'http', url: {{ToJsString(listener.BoundUrl!)}} });
+              await c.start();
+              console.log('STARTED');
+              const t0 = Date.now();
+              while (!c.tools.some(t => t.name === 'late')) {
+                if (Date.now() - t0 > 15000) { console.log('NEVER'); c.stop(); return; }
+                await new Promise(r => setTimeout(r, 50));
+              }
+              console.log('RELISTED ' + (Date.now() - t0));
+              c.stop();
+            })().catch(e => { console.error(e); process.exit(1); });
+            """;
+
+        var run = RunNodeAsync(script);
+        // Give it time to open the GET stream, then change the tools and say so.
+        for (var i = 0; i < 100 && listener.OpenStreams == 0; i++) await Task.Delay(50);
+        Assert.True(listener.OpenStreams > 0, "DOCA's client never opened the event stream");
+        late = true;
+        listener.NotifyToolsChanged();
+
+        var (code, stdout, stderr) = await run;
+        Assert.True(code == 0, $"{stderr}{stdout}");
+        Assert.Contains("RELISTED", stdout);
+        var ms = int.Parse(System.Text.RegularExpressions.Regex.Match(stdout, @"RELISTED (\d+)").Groups[1].Value);
+        Assert.True(ms < 5000, $"re-listed only after {ms} ms — the notification did not arrive promptly");
+    }
+
+    private sealed class NamedTool(string name) : IMcpTool
+    {
+        public string Name => name;
+        public string Description => name;
+        public bool ReadOnlyHint => true;
+        public System.Text.Json.Nodes.JsonObject InputSchema => new() { ["type"] = "object", ["properties"] = new System.Text.Json.Nodes.JsonObject() };
+        public Task<McpToolResult> CallAsync(System.Text.Json.Nodes.JsonNode? args, string sessionId, CancellationToken ct) =>
+            Task.FromResult(new McpToolResult { Text = name });
+    }
+
     private sealed class HelloTool : IMcpTool
     {
         public string Name => "hello";

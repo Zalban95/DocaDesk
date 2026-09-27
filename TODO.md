@@ -113,11 +113,16 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   The ack says what actually happened rather than claiming both. One method on `DocaClient` and one
   line here; left out because nothing reads a stale cap today.
 
-- **A `disconnect` is not visible to the person.** `OnDisconnect` stops the listener and the local
-  servers, which is right, but the window says nothing about *why* everything went quiet — it looks
-  like the listener was switched off by itself. Design §5 gives the action its own meaning
-  ("stop its services until it is opened again"), so a line in the status bar naming DOCA as the
-  reason is worth one `RegistrationMessage`.
+- **A `disconnect` leaves the push stream up.** `McpHost.DisconnectAsync` stops the listener, the
+  local servers and the shell jobs (`D-23`) but not the push loop, so prompts and alerts keep
+  arriving and DOCA's `disconnected` flag clears at this device's next poll
+  (`devices-control.js:40` compares it with `lastSeenAt`). Stopping it needs a decision about what
+  "opened again" means for a tray app — activating the window, or only a relaunch — which nobody
+  has made. DocaMobile's answer is its foreground service; the desk has no equivalent yet.
+
+- ~~**A `disconnect` is not visible to the person.**~~ **Done with `D-23`:** `DisconnectAsync` sets
+  `RegistrationMessage` to "Disconnected by DOCA — reopen DocaDesk to reconnect", and writes a
+  `device.disconnect` audit line.
 
 - **Folder checkpoints are not taken.** Design §4 wants the client to checkpoint a folder before the
   agent changes one it has not checkpointed this turn, with DOCA listing and restoring them. None of

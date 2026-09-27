@@ -53,8 +53,9 @@ public sealed class McpHost : IAsyncDisposable
         _hands = new DeviceHands(() => _session.Client, _families, _audit)
         {
             OnReconnect = ct => _session.RefreshConnectionAsync(ct),
-            // Stay paired: the token is kept. Forgetting it is `revoked`, a different event.
-            OnDisconnect = _ => StopAsync(),
+            // Stay paired: the token is kept. Forgetting it is `revoked`, a different event. And not
+            // StopAsync, which clears the person's master switch (D-23).
+            OnDisconnect = _ => DisconnectAsync(),
             // §22.1 wants `refresh` to re-report caps as well, via PATCH /devices/{id}. That route
             // has no client method yet (caps are sent once, at pair time), so this re-reads the
             // server's capabilities and reopens the connection, and the grants half — the half the
@@ -206,6 +207,24 @@ public sealed class McpHost : IAsyncDisposable
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// DOCA's `disconnect` (design §5): stop offering anything until the person opens DocaDesk
+    /// again, and stay paired. Deliberately not <see cref="StopAsync"/>, which is the person's own
+    /// switch and clears <c>McpAutoStart</c> — a host request must not rewrite that choice, so a
+    /// relaunch brings everything back exactly as it was (D-23).
+    /// </summary>
+    public async Task DisconnectAsync()
+    {
+        StopWaitPoll();
+        await StopListenerOnlyAsync().ConfigureAwait(false);
+        await _localServers.StopAllAsync().ConfigureAwait(false);
+        ShellTools.StopAllJobs();
+        Registration = McpRegistrationState.Idle;
+        RegistrationMessage = "Disconnected by DOCA — reopen DocaDesk to reconnect. Your settings are unchanged.";
+        _audit.Add("device.disconnect", "listener, local servers and background jobs stopped; settings kept");
+        Changed?.Invoke();
+    }
+
     public async Task RegenerateSecretAsync()
     {
         var was = IsRunning;
@@ -351,8 +370,13 @@ public sealed class McpHost : IAsyncDisposable
                 try { control = JsonSerializer.Deserialize<DeviceControlPayload>(ctl.GetRawText()); }
                 catch { /* an unreadable payload is not worth crashing the push loop for */ }
             }
+            // Handed off, not awaited. `refresh` and `reconnect` tear down and reopen the push
+            // stream, whose loop is what is calling us — awaited here, the action waited for the
+            // loop and the loop waited for the action, and DocaDesk stopped receiving pushes until
+            // restarted, then deadlocked again replaying the same unacked event (D-21). The ack
+            // still reports the outcome; the loop is free to advance and to be disposed.
             if (control is not null)
-                await _hands.HandleControlAsync(control, ct).ConfigureAwait(false);
+                _ = Task.Run(() => _hands.HandleControlAsync(control, CancellationToken.None));
             return;
         }
 
