@@ -29,6 +29,8 @@ public sealed class McpHost : IAsyncDisposable
     private readonly ScreenCapturer _capturer = new();
     private readonly ToolConsent _consent = new();
     private readonly LocalMcpRegistry _localServers;
+    private readonly FamilyConsent _families;
+    private readonly DeviceHands _hands;
     private McpHttpListener? _listener;
     private string _secret = McpHttpListener.NewPathSecret();
     private string _bearer = NewBearerToken();
@@ -43,8 +45,57 @@ public sealed class McpHost : IAsyncDisposable
         _localServers = new LocalMcpRegistry(LocalMcpRegistry.DefaultStorePath(), _consent, _audit);
         // Tell DOCA too: it holds our event stream open and lists the tools again (DOCA 2.90.0+).
         _localServers.ToolsChanged += () => { Changed?.Invoke(); _listener?.NotifyToolsChanged(); };
+
+        // Devices as hands (§22.1). The consent lives in HKCU like every other app-local boolean,
+        // but FamilyConsent itself knows nothing about the registry — the Linux client supplies its
+        // own two delegates and reuses the rest of the file unchanged.
+        _families = new FamilyConsent(AppPrefs.GetFamilyGrant, AppPrefs.SetFamilyGrant);
+        _hands = new DeviceHands(() => _session.Client, _families, _audit)
+        {
+            OnReconnect = ct => _session.RefreshConnectionAsync(ct),
+            // Stay paired: the token is kept. Forgetting it is `revoked`, a different event.
+            OnDisconnect = _ => StopAsync(),
+            // §22.1 wants `refresh` to re-report caps as well, via PATCH /devices/{id}. That route
+            // has no client method yet (caps are sent once, at pair time), so this re-reads the
+            // server's capabilities and reopens the connection, and the grants half — the half the
+            // harness actually gates on — is reported by DeviceHands either way. TODO.md records
+            // the missing PATCH so the ack's wording stops being a half-truth.
+            OnRefreshCaps = ct => _session.RefreshConnectionAsync(ct),
+        };
+        _families.Changed += () =>
+        {
+            // A family the person just allowed changes what this listener offers, so DOCA has to
+            // re-list — the same reason a local server starting does (D-8).
+            _listener?.NotifyToolsChanged();
+            Changed?.Invoke();
+        };
+        _hands.Changed += () => Changed?.Invoke();
+
+        // Report on every change and whenever the session comes back paired. DOCA offers the
+        // harness nothing from a device that has not reported, and a report also clears a
+        // disconnect on its side (devices-control.js:91) — so this is how the device says it is
+        // back, which is why it hangs off the session rather than off the listener.
+        _families.Changed += () => _ = _hands.ReportGrantsAsync();
+        _session.Changed += OnSessionChanged;
         _session.EventReceived += OnPushEventAsync;
     }
+
+    private SessionState _lastReportedState = SessionState.Unpaired;
+
+    private void OnSessionChanged()
+    {
+        var state = _session.State;
+        if (state == _lastReportedState) return;
+        _lastReportedState = state;
+        if (state == SessionState.Paired)
+            _ = _hands.ReportGrantsAsync();
+    }
+
+    /// <summary>What this machine's person has allowed the harness to do here, per family (§22.1).</summary>
+    public FamilyConsent Families => _families;
+
+    /// <summary>Reporting grants, and carrying out `device.control`.</summary>
+    public DeviceHands Hands => _hands;
 
     public AuditLog Audit => _audit;
     public ToolConsent Consent => _consent;
@@ -99,7 +150,15 @@ public sealed class McpHost : IAsyncDisposable
     {
         await StopListenerOnlyAsync().ConfigureAwait(false);
         var host = new Uri(_session.ServerUrl).Host;
-        var tools = DeskTools.Create(_capturer, () => _session.Client, _audit, OnCaptureFlash);
+        // The five desk tools, plus the families this device offers as the harness's hands (§22.1).
+        // The family tools gate themselves on FamilyConsent, not on ToolConsent — a family is one
+        // question asked once, not five switches — so they are registered as always-consented here
+        // and refuse internally when the family is off. See FilesTools.
+        var tools = DeskTools.Create(_capturer, () => _session.Client, _audit, OnCaptureFlash)
+            .Concat(FilesTools.Create(_families, _audit))
+            .ToArray();
+        foreach (var name in FilesTools.Names)
+            _consent.Register(name, true);
         _listener = new McpHttpListener(new McpListenerOptions
         {
             PathSecret = _secret,
@@ -274,6 +333,22 @@ public sealed class McpHost : IAsyncDisposable
 
     private async Task OnPushEventAsync(EventEnvelope ev, CancellationToken ct)
     {
+        // Devices as hands (§22.1): durable, 24 h TTL, so one may arrive from before this app was
+        // last open. DOCA carries out the half it can itself — it closes the stream for reconnect
+        // and disconnect — so the ack is the only evidence that *this* side ran the action.
+        if (string.Equals(ev.Type, "device.control", StringComparison.OrdinalIgnoreCase))
+        {
+            DeviceControlPayload? control = null;
+            if (ev.Payload is { } ctl)
+            {
+                try { control = JsonSerializer.Deserialize<DeviceControlPayload>(ctl.GetRawText()); }
+                catch { /* an unreadable payload is not worth crashing the push loop for */ }
+            }
+            if (control is not null)
+                await _hands.HandleControlAsync(control, ct).ConfigureAwait(false);
+            return;
+        }
+
         if (!string.Equals(ev.Type, "mcp.listener", StringComparison.OrdinalIgnoreCase))
             return;
 

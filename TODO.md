@@ -85,6 +85,38 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   (`:209-213`) — but the registry is a public class with no re-entrancy guard, so a second caller is
   a matter of time.
 
+## Devices as hands, deliberately one family at a time
+
+- **Only `files` is implemented of the nine.** `shell`, `processes`, `screen`, `input`, `apps`,
+  `device`, `elevated` and `mcp` are named in `ToolFamilies` and drawn in Settings with their
+  switches **disabled**, and `ReportBody()` reports them `false`. That is the safe shape: a family
+  offered to the harness but not built would fail on every call, which is worse than not offering
+  it. `files` first is the order in `docs/design/devices-as-hands.md` §1 and the one DOCA's Files
+  tab already consumes. `screen` is the cheapest next one — `DocaDesk.Capture` already does the
+  work for the `screenshot` desk tool — and `elevated` is the one that needs design before code
+  (UAC per action, plus the restore point design §4 asks for).
+
+- **`refresh` does not re-report caps.** §22.1 says the action should report caps *and* grants
+  again, via `PATCH /devices/{id}`. There is no client method for that route — caps are sent once,
+  at pair time (`AppSession.PairAsync`) — so `DeviceHands.OnRefreshCaps` reopens the connection and
+  re-reads the server's capabilities instead, and only the grants half is genuinely re-reported.
+  The ack says what actually happened rather than claiming both. One method on `DocaClient` and one
+  line here; left out because nothing reads a stale cap today.
+
+- **A `disconnect` is not visible to the person.** `OnDisconnect` stops the listener and the local
+  servers, which is right, but the window says nothing about *why* everything went quiet — it looks
+  like the listener was switched off by itself. Design §5 gives the action its own meaning
+  ("stop its services until it is opened again"), so a line in the status bar naming DOCA as the
+  reason is worth one `RegistrationMessage`.
+
+- **Folder checkpoints are not taken.** Design §4 wants the client to checkpoint a folder before the
+  agent changes one it has not checkpointed this turn, with DOCA listing and restoring them. None of
+  that exists here: `files_write`, `files_move` and `files_delete` change things with no way back
+  except the recycle bin, which they also bypass (`File.Delete`, `Directory.Delete`). This is the
+  largest single gap in the family and the reason to be careful about granting it on a machine that
+  matters. It is a design item, not a rough edge — but it is recorded here because the `files`
+  family shipped without it.
+
 ## The listener and its address
 
 - **`100.` is checked as a string prefix, not as a range.** Both `FindTailscaleIpv4`

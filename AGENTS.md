@@ -26,9 +26,9 @@ push loop has two other implementations to check against before inventing a thir
 |---|---|
 | `src\DocaDesk` | The WinUI 3 app: window, tray, WebView2 host, prompt window, notifications, consent UI, settings, and `Services\McpHost.cs` which owns the listener's lifecycle |
 | `src\DocaDesk.Core` | Protocol client: models, `DocaClient`, DPAPI credential store, push loop and cursor, error mapping, `RedactingLogger`. No UI dependencies. **`TreatWarningsAsErrors` is set for this project alone** (`Directory.Build.props:6`) |
-| `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, and the local-server registry. Must not reference WinUI — the listener has to be startable from a test with no window |
+| `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, the local-server registry, and the **tool families** this device offers the harness (`ToolFamilies`, `FamilyConsent`, `DeviceHands`, `FilesTools`). Must not reference WinUI — the listener has to be startable from a test with no window, and the Linux client reuses the families unchanged |
 | `src\DocaDesk.Capture` | `Windows.Graphics.Capture` with a `PrintWindow`/GDI fallback, encoding and downscaling |
-| `tests\DocaDesk.Tests` | xUnit, 76 tests |
+| `tests\DocaDesk.Tests` | xUnit, 92 tests |
 
 **`DocaDesk.sln` now contains all five projects** (`dotnet sln list`, verified on portal
 2026-09-27). It used to hold only `src\DocaDesk.Capture` and `src\DocaDesk`, and both this file and
@@ -70,7 +70,7 @@ MCP server definition. Today that holds because the host-facing surface is `PATC
 
 - `dotnet build DocaDesk.sln` builds all five projects.
 - **`dotnet test` with no argument now runs the suite** — the test project is a solution member, so
-  bare `dotnet test` reports `Passed: 76`. This file used to say it *"builds nothing, runs nothing,
+  bare `dotnet test` reports `Passed: 92`. This file used to say it *"builds nothing, runs nothing,
   and exits 0"*, which was true once and is the kind of stale warning that makes a reader distrust a
   green run. Naming the project — `dotnet test tests\DocaDesk.Tests` — is still the habit worth
   keeping: it is faster and unambiguous.
@@ -199,6 +199,48 @@ Keep it that way. The remaining rules:
 - The store is written tmp → `.bak` → move (`:306-316`), and a corrupt file is recorded in the
   audit log and otherwise ignored (`:282-303`). A first run with no file at all is the normal case.
 
+## Devices as hands (`src\DocaDesk.Mcp\` — `ToolFamilies`, `FamilyConsent`, `DeviceHands`, `FilesTools`)
+
+`PROTOCOL.md` §22.1 and `docs/design/devices-as-hands.md`: a paired device offers the harness the
+same **tool families** the host has, as far as its OS allows. All four files are **WinUI-free and in
+`DocaDesk.Mcp` on purpose** — the Linux client is meant to reuse them unchanged (design §6 step 3).
+Only the Settings page and the HKCU storage live in `src\DocaDesk`.
+
+- **The nine family names are DOCA's** (`modules/devices-control.js:25`), and a grants report keeps
+  only the keys whose value is a boolean (`:89`). So an unknown name is dropped **in silence** — a
+  typo is not an error, it is a family that never gets offered and no message saying why. `FamilyConsent.ReportBody()`
+  therefore sends **all nine explicitly**, `false` included; omitting one leaves whatever DOCA held.
+- **Granted and revoked are two facts, not one flag.** *Granted* is the person's answer, asked once
+  per family in our UI and remembered in HKCU as `Family.<name>` — where **absent ≠ false**, which
+  is why `AppPrefs.GetFamilyGrant` returns `bool?` and does not use `ReadBool`'s fallback: "never
+  asked" is what drives the prompt. *Revoked* is DOCA taking a family back (`device.control`
+  `revoke`/`restore`). A `restore` returns the family to whatever the person had said — it can never
+  widen access they did not give. Same rule as `mcp.listener` `stop`: a host request is not
+  permission to overwrite an explicit local choice.
+- **Every `device.control` action is acked, including the ones that fail.** DOCA keeps a 20-entry
+  history with `ackAt`/`ok`/`detail` and that is what a person reads in Settings → Devices. Note
+  that **DOCA does half the work itself** — it closes the stream for `reconnect`/`disconnect` and
+  ends the device's sessions for `disconnect` (`devices-control.js:63-65`) — so an action *looks*
+  successful against a client that handles nothing. **The ack is the only evidence this side ran
+  it.** The ack is deliberately not sent under the action's own cancellation token, because
+  `disconnect` is precisely the action that tears that token down.
+- **`FilesTools` answers `files_list/read/write/mkdir/move/copy/delete`** for DOCA's Files tab
+  (`modules/device-files.js`). Three shapes are dictated by that file and each fails *quietly* if
+  guessed: results are **JSON text** (`JSON.parse`, else 502); a refusal is **`isError: true`**
+  (`client.js` prefixes `Error: `, which `device-files.js:44` turns into a 400 — a refusal returned
+  as plain JSON would parse as *success*); and the names are **bare**, never `<server>__<tool>`.
+  Serialisation deliberately does **not** use `DocaJson.Options`, whose `WhenWritingNull` would drop
+  the `size: null` on a folder that the host's own shape includes.
+- **There is no path jail, and that is a decision.** Design §1 gives DocaDesk files *"everywhere the
+  user can"*; the gates are the one-time grant plus DOCA's revoke. A root would also break the Files
+  tab's machine selector.
+- **The family tools gate on `FamilyConsent`, not `ToolConsent`.** They are registered in
+  `ToolConsent` as always-on and refuse internally, because a family is one question asked once —
+  not seven switches. Do not "fix" this into per-tool toggles without reading design §2.
+- `ToolFamilies.ImplementedOnWindows` is **`files` only** today. A family listed there but not built
+  would be offered to the harness and then fail on every call, which is worse than not offering it:
+  the switch for anything else is drawn disabled and reports `false`.
+
 ## Host registration (`src\DocaDesk\Services\McpHost.cs`)
 
 - **One reconciliation path**, `ReconcileRegistrationAsync` (`:163-242`):
@@ -244,7 +286,8 @@ Everything durable lives under `%LOCALAPPDATA%\DocaDesk\`, outside the repo:
 | `tray.ico` | `TrayHost`, generated at runtime rather than checked in |
 
 App-local booleans are HKCU `Software\DocaDesk` REG_DWORDs, not a file: `StartMinimized`,
-`NotifyPrompts`, `NotifyAlerts`, `McpAutoStart`, and `Tool.<name>` per desk tool (`AppPrefs.cs`).
+`NotifyPrompts`, `NotifyAlerts`, `McpAutoStart`, `Tool.<name>` per desk tool, and `Family.<name>` per
+tool family — the last one read as `bool?`, because absent means *never asked* (`AppPrefs.cs`).
 
 **The audit log is not redacted, and that is the design.** `RedactingLogger` covers `Bearer …`,
 `doca_…` tokens and `/mcp/<secret>` (`RedactingLogger.cs:17-19,36-48`), but `AuditLog.Add` writes
@@ -253,7 +296,7 @@ its summary verbatim — brief §6.1 requires the log to stay useful. The conseq
 
 ## Tests (`tests\DocaDesk.Tests`)
 
-`dotnet test tests\DocaDesk.Tests` — 76 tests, no server, no display, no API key, no installed MCP
+`dotnet test tests\DocaDesk.Tests` — 92 tests, no server, no display, no API key, no installed MCP
 server.
 
 - **`LocalMcpRegistryTests` writes a real stdio MCP server as a `const string` of JavaScript
@@ -347,7 +390,7 @@ server.
 ## Future goals
 
 **The roadmap for this repo is not in this repo.** It is
-`d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, which is explicitly *a proposal
+`d:\doca\doca\docs\proposals\hub-any-client-any-mcp.md`, which is explicitly *a proposal
 awaiting approval — nothing in it is implemented*. Read it before proposing architecture; it
 already contains the answers to most of the obvious questions.
 

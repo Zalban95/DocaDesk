@@ -357,6 +357,80 @@ small, and even if the person who wrote it knew.
 - **How to close it:** correct all seven, and say in `AGENTS.md` that the test count and the sln
   membership are the two claims most likely to rot, so the next reader checks rather than trusts.
 
+### D-15 · This device is not yet one of the harness's hands
+
+- **Status:** open. Opened 2026-09-27, on Al's instruction that every change here gets an entry
+  first. **This one is a feature, not a defect** — `docs/design/devices-as-hands.md` §6 step 3, and
+  `PROTOCOL.md` §22.1 — tracked here so rule 4 applies to it: it does not close until it has run on
+  portal.
+- **What is missing.** DOCA has shipped its half (`modules/devices-control.js`,
+  `modules/device-files.js`, DOCA 2.112.0/2.113.0). This device never answers:
+  - it does not report what its person has allowed — `PUT /api/v1/devices/self/grants
+    { grants: { files: true, shell: false, … } }` — so `state().usable` is empty on DOCA's side and
+    the harness is offered **no** family from this machine, whatever it can actually do;
+  - it ignores the durable `device.control` event (`PROTOCOL.md` §11.4:
+    `{ id, action, family? }`, 24 h TTL) and never sends
+    `POST /api/v1/devices/self/control/{id}/ack { ok, detail }`, so every action a person takes in
+    Settings → Devices sits unacknowledged in `history` for ever. `refresh`, `reconnect`, `ask`,
+    `disconnect`, `revoke`, `restore` are the six.
+- **What DOCA does anyway, so be careful what "works" means.** `send()` closes the stream itself for
+  `reconnect` and `disconnect` and ends the device's sessions for `disconnect`
+  (`devices-control.js:63-65`), *"so the action holds even for a client that does not know the event
+  yet"*. A `reconnect` will therefore look like it worked on a client that handles nothing. Only the
+  **ack** proves this side ran it.
+- **Consent.** Once per family, asked in our own UI, remembered, revocable here and from DOCA
+  (design §2). The nine names are fixed by DOCA and unknown ones are dropped server-side
+  (`devices-control.js:25,89`): `files, shell, processes, screen, input, apps, device, elevated,
+  mcp`. `revoke`/`restore` are DOCA's side taking a family back — they must not silently rewrite
+  what the person granted here, the same rule `mcp.listener` `stop` already follows
+  (`AGENTS.md`: a host request is not permission to overwrite an explicit local choice).
+- **Where it goes.** `DocaDesk.Core` (the two calls, the models) and `DocaDesk.Mcp` (the families and
+  their consent), **WinUI-free**, because the Linux client is meant to reuse exactly this
+  (design §6 step 3). Only the Settings UI belongs in `src\DocaDesk`.
+- **Patch landed 2026-09-27, not yet run against a live DOCA.** `DocaDesk.Mcp`: `ToolFamilies` (the
+  nine names, DOCA's order, plus `ImplementedOnWindows` — `files` only today), `FamilyConsent`
+  (granted vs revoked kept apart; storage as two delegates so Linux supplies its own),
+  `DeviceHands` (report, and all six actions, each acked — failures too). `DocaDesk.Core`:
+  `PutDeviceGrantsAsync`, `AckDeviceControlAsync`, and the models. `src\DocaDesk`: HKCU
+  `Family.<name>` as `bool?` because *absent ≠ false* — that is what drives the one-time prompt —
+  a **This device** page in Settings, and `device.control` routed from `McpHost.OnPushEventAsync`.
+  Grants are reported when the session becomes Paired and after every consent change.
+- **Tests:** 15 in `DeviceHandsTests`, covering the two things most likely to be got wrong later —
+  a revoke that must not erase the person's grant, a restore that must not widen access they never
+  gave — plus "all nine reported explicitly". Green on portal.
+- **How to close it:** on portal — grant `files` in Settings, see the device's row in DOCA show it
+  as usable; press each of the six actions in Settings → Devices and see each one acked, with
+  `disconnect` actually stopping this side rather than only DOCA's.
+
+### D-16 · The Files tab cannot browse this machine
+
+- **Status:** open. Same footing as `D-15`: feature, tracked as an entry, closes only when run here.
+- **What is missing.** DOCA's Files tab and tree already speak a device
+  (`modules/device-files.js`, `/api/devices/{id}/files/*`), and every route is one `files_*` tool
+  call on the MCP server the device hosts. This listener offers five desk tools and forwards local
+  servers; it offers **none** of the seven, so `reach()` refuses with
+  *"does not offer files_list (an older client?)"* (`device-files.js:42`).
+- **The shapes are not ours to choose** — `PROTOCOL.md` §22.1 and `device-files.js:14-20`:
+  `files_list {path}` → `{path, entries:[{name,isDir,size,mtime}]}` (empty path = home),
+  `files_read {path, encoding?}` → `{content, size, mtime}`, `files_write {path, content,
+  encoding?}` → `{ok}`, `files_mkdir {path}`, `files_move {from,to}`, `files_copy {from,to}`,
+  `files_delete {paths}` → `{ok}`.
+- **Three details that will bite if they are guessed:**
+  1. **The result must be JSON text**, and DOCA parses it with `JSON.parse`; anything else is a 502
+     *"answered files_list with something that is not JSON"* (`device-files.js:45`).
+  2. **A refusal must be an MCP error**, i.e. `isError: true`. `client.js` renders that as text
+     prefixed `Error: `, which `device-files.js:44` strips and turns into a 400. A refusal returned
+     as ordinary JSON would be parsed as *success*.
+  3. **The tool names must be bare** — `files_list`, not `<server>__files_list`. `device-files.js:42`
+     matches the name exactly, and §22.1 puts a device's own families on a different trust footing
+     from anything it forwards.
+- **Not a path jail.** Design §1 gives DocaDesk files *"everywhere the user can"*; the gate is the
+  person's one-time grant plus DOCA's revoke, not a sandbox root. Say so in the code, so nobody
+  later mistakes the absence of a jail for an oversight.
+- **How to close it:** on portal, with `files` granted, browse this machine in DOCA's Files tab —
+  list a folder, read a file, upload one (base64 write) and download one (base64 read) — and see a
+  refusal when the grant is off.
+
 ---
 
 ## Fixed

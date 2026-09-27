@@ -513,8 +513,87 @@ public sealed partial class MainWindow : Window
         var tag = sender.SelectedItem?.Tag as string;
         GeneralSection.Visibility = tag is "general" or null ? Visibility.Visible : Visibility.Collapsed;
         DeskSection.Visibility = tag == "desk" ? Visibility.Visible : Visibility.Collapsed;
+        HandsSection.Visibility = tag == "hands" ? Visibility.Visible : Visibility.Collapsed;
         ServersSection.Visibility = tag == "servers" ? Visibility.Visible : Visibility.Collapsed;
         ActivitySection.Visibility = tag == "activity" ? Visibility.Visible : Visibility.Collapsed;
+        if (tag == "hands") RefreshFamilies();
+    }
+
+    /// <summary>
+    /// One row per family (§22.1). Built in code rather than written out nine times in XAML, so it
+    /// cannot drift from <see cref="ToolFamilies.All"/> — which is the list DOCA validates against,
+    /// and a name that does not match is dropped there in silence.
+    /// </summary>
+    private void RefreshFamilies()
+    {
+        if (_mcp is null || FamilyRows is null) return;
+        FamilyRows.Children.Clear();
+
+        foreach (var family in ToolFamilies.All)
+        {
+            var implemented = ToolFamilies.ImplementedOnWindows.Contains(family, StringComparer.Ordinal);
+            var revoked = _mcp.Families.IsRevoked(family);
+            var granted = _mcp.Families.Granted(family) == true;
+
+            var label = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            label.Children.Add(new TextBlock
+            {
+                Text = family,
+                Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"],
+            });
+            label.Children.Add(new TextBlock
+            {
+                Text = Describe(family, implemented, revoked),
+                Style = (Style)Application.Current.Resources["SettingDesc"],
+                TextWrapping = TextWrapping.WrapWholeWords,
+            });
+
+            var toggle = new ToggleSwitch
+            {
+                IsOn = granted,
+                Tag = family,
+                MinWidth = 0,
+                VerticalAlignment = VerticalAlignment.Center,
+                // A family this build cannot serve would report false however it were set, so an
+                // enabled switch would be a promise the machine cannot keep.
+                IsEnabled = implemented,
+            };
+            toggle.Toggled += Family_Toggled;
+
+            var grid = new Grid { ColumnSpacing = 16 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(toggle, 1);
+            grid.Children.Add(label);
+            grid.Children.Add(toggle);
+
+            FamilyRows.Children.Add(new Border
+            {
+                Style = (Style)Application.Current.Resources["Card"],
+                Child = grid,
+            });
+        }
+
+        var usable = _mcp.Hands.Usable;
+        HandsUsable.Text = usable.Count > 0
+            ? "DOCA is offering the harness: " + string.Join(", ", usable) + "."
+            : "DOCA is offering the harness nothing from this machine yet.";
+    }
+
+    private static string Describe(string family, bool implemented, bool revoked)
+    {
+        var what = "Let DOCA's agents " + ToolFamilies.Describe(family) + ".";
+        if (!implemented) return what + " Not available in this build yet.";
+        if (revoked) return what + " Revoked in DOCA — it will not be offered until it is restored there.";
+        return what;
+    }
+
+    private void Family_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_mcp is null || sender is not ToggleSwitch t || t.Tag is not string family) return;
+        _mcp.Families.SetGranted(family, t.IsOn);
+        // The report to DOCA rides FamilyConsent.Changed; only the wording below is ours to redraw.
+        HandsUsable.Text = "Telling DOCA…";
     }
 
     private void SettingsBack_Click(object sender, RoutedEventArgs e)

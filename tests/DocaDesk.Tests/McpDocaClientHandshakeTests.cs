@@ -79,6 +79,126 @@ public class McpDocaClientHandshakeTests
         }
     }
 
+    /// <summary>
+    /// The `files` family through the real stack, the way DOCA's Files tab reaches it:
+    /// `modules/mcp/client.js` calls the tool, and `modules/device-files.js` checks the name, looks
+    /// for an `Error:` prefix, then `JSON.parse`s the text. Those are the three traps in
+    /// ISSUES.md D-16, and each one fails *quietly* — a refusal parsed as a result, a name that
+    /// never matches, a 502 on unparseable text — so asserting them against our own expectations
+    /// would prove nothing. This runs the other side's code.
+    /// </summary>
+    [Fact]
+    public async Task Doca_can_list_this_machines_files_and_is_refused_without_the_grant()
+    {
+        var clientJs = DocaRepo.ClientJs;
+        if (clientJs is null) return;
+
+        var dir = Path.Combine(Path.GetTempPath(), "docadesk-e2e-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(Path.Combine(dir, "hello.txt"), "hi");
+
+        var consent = FamilyConsent.InMemory();          // files not granted yet
+        var toolConsent = new ToolConsent();
+        foreach (var n in FilesTools.Names) toolConsent.Register(n, true);
+
+        await using var listener = new McpHttpListener(new McpListenerOptions
+        {
+            PathSecret = McpHttpListener.NewPathSecret(),
+            Tools = FilesTools.Create(consent, null),
+            Consent = toolConsent,
+        });
+        await listener.StartLoopbackForTestsAsync(FreePort());
+        var url = listener.BoundUrl!;
+
+        // device-files.js does exactly this: name check, Error: prefix, JSON.parse.
+        var script = $$"""
+            const { McpClient } = require({{ToJsString(clientJs!)}});
+            const call = async (c, tool, args) => {
+              if (!c.tools.some(t => t.name === tool)) throw new Error('not offered: ' + tool);
+              const text = await c.callTool(tool, args);
+              if (/^Error:/.test(text)) return { refused: text.replace(/^Error:\s*/, '') };
+              return { ok: JSON.parse(text) };
+            };
+            (async () => {
+              const c = new McpClient({ id: 'desk-files', transport: 'http', url: {{ToJsString(url)}} });
+              await c.start();
+
+              const denied = await call(c, 'files_list', { path: {{ToJsString(dir)}} });
+              if (!denied.refused) throw new Error('an ungranted family answered: ' + JSON.stringify(denied));
+
+              process.stdout.write('REFUSED\n');
+              c.stop();
+            })().catch(e => { console.error(e); process.exit(1); });
+            """;
+
+        var (code, stdout, stderr) = await RunNodeAsync(script);
+        Assert.True(code == 0, $"refusal leg failed: {stderr}{stdout}");
+        Assert.Contains("REFUSED", stdout);
+
+        // Now the person allows it, and the same call has to come back as parseable JSON.
+        consent.SetGranted(ToolFamilies.Files, true);
+
+        var script2 = $$"""
+            const { McpClient } = require({{ToJsString(clientJs!)}});
+            (async () => {
+              const c = new McpClient({ id: 'desk-files2', transport: 'http', url: {{ToJsString(url)}} });
+              await c.start();
+              const text = await c.callTool('files_list', { path: {{ToJsString(dir)}} });
+              if (/^Error:/.test(text)) throw new Error('refused after the grant: ' + text);
+              const doc = JSON.parse(text);                       // a 502 in device-files.js if this throws
+              const names = (doc.entries || []).map(e => e.name);
+              if (!names.includes('hello.txt')) throw new Error('missing entry: ' + names.join(','));
+              const f = doc.entries.find(e => e.name === 'hello.txt');
+              if (f.isDir !== false || f.size !== 2 || !f.mtime) throw new Error('wrong shape: ' + JSON.stringify(f));
+
+              const read = JSON.parse(await c.callTool('files_read', { path: {{ToJsString(dir)}} + '\\hello.txt' }));
+              if (read.content !== 'hi') throw new Error('wrong content: ' + JSON.stringify(read));
+
+              process.stdout.write('OK\n');
+              c.stop();
+            })().catch(e => { console.error(e); process.exit(1); });
+            """;
+
+        var (code2, stdout2, stderr2) = await RunNodeAsync(script2);
+        Assert.True(code2 == 0, $"granted leg failed: {stderr2}{stdout2}");
+        Assert.Contains("OK", stdout2);
+
+        Directory.Delete(dir, recursive: true);
+    }
+
+    private static async Task<(int Code, string Stdout, string Stderr)> RunNodeAsync(string script)
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "docadesk-mcp-" + Guid.NewGuid().ToString("N") + ".js");
+        await File.WriteAllTextAsync(tmp, script);
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo
+            {
+                FileName = "node",
+                ArgumentList = { tmp },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            }) ?? throw new InvalidOperationException("node failed to start");
+
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));   // D-14
+            var outTask = p.StandardOutput.ReadToEndAsync(deadline.Token);
+            var errTask = p.StandardError.ReadToEndAsync(deadline.Token);
+            try
+            {
+                await p.WaitForExitAsync(deadline.Token);
+                return (p.ExitCode, await outTask, await errTask);
+            }
+            catch (OperationCanceledException)
+            {
+                try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                return (-1, "", "node did not exit within 60s (it was killed).");
+            }
+        }
+        finally { File.Delete(tmp); }
+    }
+
     private sealed class HelloTool : IMcpTool
     {
         public string Name => "hello";
