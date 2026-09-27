@@ -155,6 +155,41 @@ small, and even if the person who wrote it knew.
 - **Do not repair anything found here without adding it to this file first.** The point of the
   review is the list, not the patches.
 
+- **Review done 2026-09-27 on portal.** Findings are `D-10` … `D-13`. Item by item:
+
+  0. **The file list above is wrong, and that is the first finding.** It was taken *by timestamp*,
+     and mtimes are not a diff. 2.23.0 is commit `610c383`; it touched **eight** files:
+     `LocalMcpRegistry.cs`, `App.xaml.cs`, `MainWindow.xaml`, `MainWindow.xaml.cs`, `AppPrefs.cs`,
+     `McpHost.cs`, `TrayHost.cs`, `LocalMcpRegistryTests.cs`. Six of the files named above were
+     **not changed by it**: `McpHttpListener.cs`, `McpStdioClient.cs`, `AGENTS.md`, `README.md`,
+     `TODO.md`, `.gitignore` (`git diff --quiet 739078c..610c383 -- <each>` → unchanged).
+  1. **Build and tests: pass.** `dotnet build DocaDesk.sln` → `0 Warning(s) 0 Error(s)`;
+     `dotnet test tests\DocaDesk.Tests` → `Passed: 76, Failed: 0`. `DocaDesk.Core`'s
+     `TreatWarningsAsErrors` therefore had nothing to say.
+  2. **The security diff is empty.** `git diff 739078c..610c383 --` for `McpHttpListener.cs` and
+     `McpStdioClient.cs` produces **no output**: 2.23.0 did not touch either file, so the path
+     secret, bearer enforcement, the `100.` check and the redaction were not at risk from this
+     release at all. This item is discharged, and nobody should redo it. **The two files did change
+     later**, in `0769f04` (D-8) — reviewed here instead, and that review is what produced `D-11`.
+  3. **No secret is written anywhere new: confirmed.** Every write in `src` is `AuditLog`
+     (by design, `AGENTS.md:243`), `RedactingLogger` (redacts), `FileCursorStore` (a seq number),
+     `DpapiCredentialStore` (DPAPI) and `LocalMcpRegistry`'s store (no secrets — there is no `Env`).
+     The `mcp-url.txt` write is gone. **But the file it used to write is still on disk with a live
+     secret in it — `D-12`.**
+  4. **`CloseToTray` defaults to false on a fresh key: confirmed on the real machine.**
+     `HKCU\Software\DocaDesk` on portal holds `Tool.*`, `McpAutoStart`, `NotifyPrompts`,
+     `NotifyAlerts` and **no `CloseToTray` value at all**, so `ReadBool("CloseToTray", false)` reads
+     its fallback and X quits. This was the one item that could only be answered here, and it passes.
+  5. **`AGENTS.md` / `README.md` claims: seven are false — `D-13`.**
+
+  Two things 2.23.0 got right and should not be "fixed" back: `AnyToolConsented()` now asks the
+  specs rather than the running clients (it closes a `TODO.md` entry), and `ReconcileRegistrationAsync`
+  now always `PATCH`es because `GET` masks header values, so a rotated bearer is indistinguishable
+  from a matching one. Both are improvements the documentation has not caught up with.
+
+- **What still blocks closing D-4:** nothing in the review itself. It closes when `D-10` … `D-13`
+  are patched and run here.
+
 ### D-8 · A local server started later is invisible to DOCA until someone clicks ↺ Tools
 
 - **Status:** open — **patch landed, not yet run on portal.** Written 2026-09-27 from the code, on
@@ -188,6 +223,139 @@ small, and even if the person who wrote it knew.
   `_session.Client?.Token`. M2's other halves stand: no script injection, no bridge, and the
   token goes to nothing but the configured server, once.
 - **To close on portal:** build; unpair/pair or clear WebView data; the dashboard opens signed in.
+
+### D-10 · The dashboard's one signed-in load is spent even when it fails
+
+- **Status:** open. Found 2026-09-27 on portal, reading the D-9 patch during the D-4 review.
+- **Where:** `src\DocaDesk\Services\DashboardHost.cs` — `NavigateHome` (`:66-77`);
+  `src\DocaDesk\MainWindow.xaml.cs` — `EnsureDashboardAsync` (`:351-392`), `Retry_Click` (`:447-451`).
+- **What happens.** `NavigateHome` sets `_signedIn = true` *before* the navigation is known to have
+  worked, so the token-bearing load is spent on an attempt, not on a success. The only caller of
+  `UseDeviceToken` / `NavigateHome` is inside `if (_dashboard is null)` — built once, deliberately
+  (the comment at `:356-361` explains why, and it is right). `Retry_Click` calls only
+  `RefreshConnectionAsync()`, which comes back through `EnsureDashboardAsync`, where `_dashboard` is
+  no longer null — so **Retry re-navigates nothing at all**. The WebView keeps whatever it last
+  showed.
+- **The case that hits it is the ordinary one.** Server unreachable at first paint — Tailscale
+  still coming up, DOCA restarting, laptop woken on another network — burns the one header load.
+  From then on the only route to a signed-in dashboard is restarting the app, and D-9's symptom is
+  back: it asks for the password although the desk is paired.
+- **Why it was not caught.** D-9 was written and patched on Linux, where the WinUI project cannot
+  build, so the patch has never been watched failing. On portal right now Tailscale is down, which
+  is precisely the state that reproduces it.
+- **Fix shape.** Two small changes:
+  1. Set `_signedIn` in `NavigationCompleted` on success, not in `NavigateHome` before the attempt —
+     so a failed load leaves the token still spendable.
+  2. Give Retry something to do: have `Retry_Click` (or the `NavigationFailed` path) call
+     `_dashboard.NavigateHome()` as well as refreshing the session.
+- **How to close it:** on portal, with DOCA unreachable, open DocaDesk, see "Dashboard offline",
+  bring DOCA up, press **Retry**, and land on a dashboard that does not ask for the password.
+
+### D-11 · The two tests that prove DOCA can call this listener have not run since DOCA moved
+
+- **Status:** open. Measured on portal 2026-09-27.
+- **Where:** `tests\DocaDesk.Tests\LocalMcpRegistryTests.cs:146` and
+  `tests\DocaDesk.Tests\McpDocaClientHandshakeTests.cs:14` both hardcode
+  `D:\doca\doca\DOCA\modules\mcp\client.js`. DOCA's repo root is `D:\doca\doca\`, so the file is at
+  `D:\doca\doca\modules\mcp\client.js`. The old path does not exist.
+- **Evidence.** `Test-Path "D:\doca\doca\DOCA\modules\mcp\client.js"` → `False`;
+  `Test-Path "D:\doca\doca\modules\mcp\client.js"` → `True`. Run under `--filter`, the two tests
+  report **Passed in 2 ms and 3 ms** — a real run spawns `node` and costs hundreds of milliseconds.
+  The guard is a bare `return` (`McpDocaClientHandshakeTests.cs:15-19`), which `TODO.md` already
+  names as a category: a test that cannot run reports as passed.
+- **Why this one matters more than the category.** `AGENTS.md:262-264` calls
+  `Docas_own_client_can_call_a_server_this_machine_runs` *"the highest value test in the suite: if
+  it passes the dashboard will work"*. It has not passed — it has not run. Concretely: **D-8's
+  handshake change was never checked against DOCA's real client.** `initialize` now answers
+  `capabilities.tools.listChanged = true` and the listener holds a GET event stream open, and the
+  one test that drives `modules/mcp/client.js` against it was inert the whole time.
+- **Fix shape.** Resolve the path instead of hardcoding it: walk up from `AppContext.BaseDirectory`
+  (or take `DOCA_REPO`) and probe both `doca\modules\mcp\client.js` and the old
+  `doca\DOCA\modules\mcp\client.js`, so neither repo layout silently disarms the test. While in
+  there, make the guard `Assert.Skip` (xUnit 2.9 has it; the project is on 2.9.2) so the summary
+  stops lying — `TODO.md` asks for this and this entry is the reason it is worth the churn.
+- **How to close it:** both tests green on portal with a duration that shows node ran, and
+  `Skipped:` honest in the summary.
+
+### D-14 · D-8's held-open stream makes DOCA's client outlive its script, and the suite waits for ever
+
+- **Status:** open. Found on portal 2026-09-27, in the first run of the tests `D-11` un-disarmed —
+  which is the point of `D-11`: fixing the path immediately found a real defect behind it.
+- **What happens.** Since D-8 the listener holds the GET event stream open when `initialize`
+  announces `tools.listChanged`, and DOCA's `modules/mcp/client.js` opens that stream in `start()`.
+  A held socket is a live libuv handle, so **`node` no longer exits when the script's last statement
+  runs**. `Docas_own_client_can_call_a_server_this_machine_runs` ends with `console.log('OK')` and
+  **no `process.exit(0)`** (`LocalMcpRegistryTests.cs:164`), so the child never exits.
+- **Why it is worse than one slow test.** `RunNodeAsync` (`:438-456`) is
+  `ReadToEndAsync` → `ReadToEndAsync` → `WaitForExitAsync` with **no timeout on any of the three**.
+  So the test does not fail, it **hangs**, and it takes the whole run with it: measured here, the
+  filtered run was still going at **5 minutes** and had to be killed, leaving an orphan `node`.
+  `Doca_mcp_client_js_initialize_and_tools_list` is unaffected only because its script happens to
+  call `process.exit(0)` (`McpDocaClientHandshakeTests.cs:40`) — the same accident that hid this.
+- **This was latent in D-8 and could not be seen.** D-8 was built and tested on Linux against the
+  portable projects, where this test returned early on the stale path (`D-11`). The two defects hid
+  each other: the dead path meant nobody ran the test, and running it is what reveals the hang.
+- **Evidence.** After the `D-11` path fix, on portal:
+  `Doca_mcp_client_js_initialize_and_tools_list` → **Passed [168 ms]** (it was 2 ms when inert, so
+  D-8's handshake *is* good against DOCA's real client); the forwarding test → no result in 300 s.
+- **Fix shape.**
+  1. `process.exit(0)` at the end of the forwarding script, as the handshake script already does.
+  2. **Bound `RunNodeAsync`** — a `CancellationTokenSource` on the reads and the wait, and `Kill(true)`
+     on timeout, returning the output captured so far. A test helper that can hang for ever is worth
+     fixing on its own account; this is the second time an unbounded wait has cost a session here
+     (`D-1` is the first, on quit).
+- **How to close it:** both cross-repo tests green on portal with durations that show node ran, and
+  a deliberately non-exiting script failing on the timeout rather than hanging.
+
+### D-12 · A live listener path secret sits in cleartext in `mcp-url.txt`
+
+- **Status:** open. Seen on portal 2026-09-27.
+- **What happens.** An earlier version wrote the listener URL — path secret and all — to
+  `%LOCALAPPDATA%\DocaDesk\mcp-url.txt`. The write was **removed**, and `App.xaml.cs:60-70` records
+  why, in the right words: the secret is DPAPI-protected in the credential store and redacted out of
+  every log line, and that file undid both. Nothing, however, deletes the file already written.
+- **Evidence.** On portal the file is dated 13/09/2026 and holds
+  `http://100.72.168.60:8742/mcp/<32-byte secret>`. `mcp.path.secret` has not been regenerated
+  since, so that is the **current** secret, in a plain file, world-readable to anything running as
+  this user. Until bearer enforcement arms, the path secret is the listener's whole authentication
+  (`AGENTS.md:106-108`).
+- **Where:** no code writes it any more — `grep -rn "mcp-url" src/` finds only the comment. The
+  defect is the absence of a cleanup, not a write.
+- **Fix shape.** Delete the file on startup if present (best-effort, no error if it is gone), next to
+  the comment that explains it. Regenerating the secret in Settings is the user-side remedy and
+  should be recommended once, but the file should not survive an upgrade either way.
+- **How to close it:** on portal, launch the patched build and confirm the file is gone; regenerate
+  the secret so the disclosed one is dead.
+
+### D-13 · `AGENTS.md` and `TODO.md` describe a repo that has moved on
+
+- **Status:** open. Found during the D-4 review, 2026-09-27, on portal. This *is* D-4 item 5 —
+  recorded as its own entry because it is a list of specific false sentences, and `AGENTS.md:153`
+  is right that a wrong sentence there costs every future session.
+- **Each claim, and what is true:**
+  1. **Solution membership.** `AGENTS.md:33-36` — *"`DocaDesk.sln` contains only two of the five
+     projects"* — and `TODO.md:131-136` say the same. `dotnet sln list` on portal returns **all
+     five**: `DocaDesk.Capture`, `DocaDesk.Core`, `DocaDesk.Mcp`, `DocaDesk`, `DocaDesk.Tests`.
+  2. **The headline build warning, in both files.** `AGENTS.md:71-72` and `TODO.md:133-134` —
+     *"`dotnet test` with no argument builds nothing, runs nothing, and exits 0"*. On portal bare
+     `dotnet test` runs the suite: `Passed! Failed: 0, Passed: 76`. The instruction to always name
+     the project is still good practice; the stated reason for it is no longer true, and a reader
+     who trusts it will mis-diagnose a green run as a hollow one.
+  3. **Test count.** `AGENTS.md:31,250` say 69 tests; there are **76**.
+  4. **DOCA's path.** `AGENTS.md:13-15` cites `d:\doca\doca\DOCA\PROTOCOL.md`; the file is
+     `d:\doca\doca\PROTOCOL.md`. The same stale prefix is what disarmed two tests — see `D-11`,
+     which is this documentation error with teeth.
+  5. **`mcp-url.txt`.** `AGENTS.md:235` lists it under "Where things are stored", *"written by
+     `App.OnLaunched` — only on the auto-start path"*. Nothing writes it; see `D-12`.
+  6. **The reconciliation path.** `AGENTS.md:200-203` — *"200 that matches means nothing to do"*.
+     2.23.0 changed `ReconcileRegistrationAsync` to **always** `PATCH /mcp/self`, with a comment
+     giving a good reason (`GET` masks header values, so a rotated bearer looks identical to a
+     matching one). The behaviour is right; the documentation describes the version before it.
+  7. **`TODO.md`'s `AnyToolConsented()` entry** (`:62-70`) was **fixed** by 2.23.0 — it now asks the
+     specs, `_localServers.List().Any(s => s.Consented)`, which is exactly what the entry asked for.
+     It is still listed as an open rough edge.
+- **How to close it:** correct all seven, and say in `AGENTS.md` that the test count and the sln
+  membership are the two claims most likely to rot, so the next reader checks rather than trusts.
 
 ---
 

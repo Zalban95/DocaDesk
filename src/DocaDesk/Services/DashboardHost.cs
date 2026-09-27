@@ -48,6 +48,11 @@ public sealed class DashboardHost
     {
         if (e.IsSuccess)
         {
+            // Only a load that arrived spends the token: DOCA has answered with its session
+            // cookie, so every later request rides that instead. Marking it spent before the
+            // attempt meant one unreachable server (Tailscale still coming up, DOCA restarting)
+            // burnt it for the life of the process — and D-9's symptom came straight back (D-10).
+            _signedIn = true;
             NavigationSucceeded?.Invoke();
             return;
         }
@@ -69,7 +74,7 @@ public sealed class DashboardHost
             return;
         if (_deviceToken is not null && !_signedIn)
         {
-            _signedIn = true;   // once: DOCA's cookie carries every request after this one
+            // _signedIn is set in OnNavigationCompleted, on success only (D-10).
             var req = _webView.CoreWebView2.Environment.CreateWebResourceRequest(
                 _serverRoot.ToString(), "GET", null, $"Authorization: Bearer {_deviceToken}");
             _webView.CoreWebView2.NavigateWithWebResourceRequest(req);

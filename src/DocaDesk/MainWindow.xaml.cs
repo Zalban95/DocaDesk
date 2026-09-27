@@ -448,6 +448,10 @@ public sealed partial class MainWindow : Window
     {
         if (_session is null) return;
         await _session.RefreshConnectionAsync();
+        // Refreshing the session was all this did, and EnsureDashboardAsync deliberately builds
+        // the host only once — so after a failed first load Retry re-navigated nothing and the
+        // WebView kept showing "Dashboard offline" however often it was pressed (D-10).
+        _dashboard?.NavigateHome();
     }
 
     private async void Unpair_Click(object sender, RoutedEventArgs e)

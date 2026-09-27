@@ -25,9 +25,30 @@ public partial class App : Application
         };
     }
 
+    /// <summary>
+    /// An old version wrote the listener's URL — path secret and all — to
+    /// <c>%LOCALAPPDATA%\DocaDesk\mcp-url.txt</c> in clear. That write is gone (see
+    /// <see cref="OnLaunched"/>), but removing a write does not remove the file it already
+    /// made: on this machine one was still sitting there months later holding the *current*
+    /// secret, which until bearer enforcement arms is the listener's whole authentication.
+    /// So delete it, every launch, best effort. ISSUES.md D-12.
+    /// </summary>
+    private static void DeleteLegacyMcpUrlFile()
+    {
+        try
+        {
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DocaDesk", "mcp-url.txt");
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch { /* a file we cannot delete is not a reason to fail to start */ }
+    }
+
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         UiDispatcher = DispatcherQueue.GetForCurrentThread();
+        DeleteLegacyMcpUrlFile();
         NotificationService.EnsureRegistered();
         Mcp = new McpHost(Session);
         await Mcp.InitializeAsync();

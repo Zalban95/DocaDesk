@@ -6,22 +6,16 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
 
 ## Local MCP servers, deliberately minimal in the first pass
 
-- **A definition can be added and removed, never edited.** `LocalMcpRegistry` exposes `Add`
-  (`:94`), `RemoveAsync` (`:120`), `SetConsent` (`:132`) and `SetAutoStart` (`:147`) — and no
-  update of any kind. The panel matches: an Add form and a **Remove** button per row
-  (`MainWindow.xaml:92-97`, `MainWindow.xaml.cs:173-179`). Fixing a typo in one argument means
-  removing the row and typing the whole thing again, which also silently drops its consent and
-  autostart flags. Reordering is not possible either: `List()` sorts by id
-  (`LocalMcpRegistry.cs:81`), so the only way to change the order in the panel is to rename a
-  server. An `Update(spec)` that keeps the id and re-spawns a running server is a small method; it
-  was left out because a wrong command line is visible in the row and retyping it costs seconds.
+- ~~**A definition can be added and removed, never edited.**~~ **Done in 2.23.0** (`610c383`):
+  `LocalMcpRegistry.UpdateAsync` (`:125`) changes command, args, label and working directory,
+  keeps consent and autostart, and restarts a running server; the panel has an **Edit** button per
+  row wired to it (`MainWindow.xaml.cs:185-186`, `:288`). **Still true:** reordering is not possible,
+  because `List()` sorts by id — renaming a server is the only way to change the panel's order.
 
-- **The Add form cannot set a working directory or a label.** `LocalMcpServerSpec` carries both
-  (`:18`, `:21`), both are persisted, and both are honoured — `McpStdioClient` passes the directory
-  straight to `ProcessStartInfo` (`:202`). But the form has three boxes (Id, Command, Arguments) and
-  sets `Label = id` (`MainWindow.xaml.cs:196-203`), so a server that must run inside a project
-  folder can only be given one by hand-editing `%LOCALAPPDATA%\DocaDesk\mcp-servers.json`. Two more
-  `TextBox`es and one line each.
+- **The Add form cannot set a label.** *(The working-directory half is done: the form has
+  `LocalMcpCwdBox`, "A folder, not a file" — `MainWindow.xaml:333`, added with D-5/D-7.)*
+  `LocalMcpServerSpec` still carries a `Label` that the form never sets, so `Label = id` always and
+  a row cannot be given a friendlier name than its tool prefix. One `TextBox` and one line.
 
 - **No environment support, so a server that needs an API key cannot be run at all.** This one is a
   decision rather than an omission — `client.js` accepts `env` (`modules/mcp/client.js:57`) and
@@ -48,9 +42,12 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   because DOCA has its own per-tool switches in the ⚙ panel, which is the second of the two gates
   brief §5.5 asks for; the desktop simply cannot be the first one at tool granularity.
 
-- **A changed tool list is never re-offered to the host.** `ToolsChanged` fires on start, stop,
+- **A changed tool list is never re-offered to the host.** *(Half of this is now done: since D-8
+  `ToolsChanged` also calls `NotifyToolsChanged()`, so DOCA re-lists and a server started later
+  reaches the dashboard without ↺ Tools. What remains is the stale `tools` array on the offer card,
+  below.)* `ToolsChanged` fires on start, stop,
   remove and consent (`LocalMcpRegistry.cs:70`) and `McpHost` wires it to `Changed` (`:44`), which
-  refreshes this app's own window and nothing else. The `tools` array in the offer
+  refreshes this app's own window. The `tools` array in the offer
   (`OfferedToolNames()`, `:338`) is a snapshot of the moment the offer was made, so a server
   started later is missing from it and a removed one lingers. In practice it costs nothing
   functional: the host discovers tools by calling `tools/list`, which `DynamicTools` answers live,
@@ -59,15 +56,10 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   side alone: `PATCH /mcp/self` accepts `url` and `headers` only
   (`.agent/DOCA_DESK_ADDENDUM_MCP.md`, §2), so no route would take a new tool list.
 
-- **`AnyToolConsented()` cannot see a consented local server while the listener is off.** It is
-  `ToolNames.Any(consented) || _localServers.Tools().Count > 0` (`McpHost.cs:93`), and `Tools()`
-  returns only *running* servers — but autostart happens after the listener starts (`:125`). So a
-  machine set up to forward one filesystem server and to consent to none of the five desk tools
-  refuses a host-requested `start` with "no tools have consent" (`:310-316`), which is the exact
-  opposite of what the comment above the method describes. It is narrow: it needs `McpAutoStart`
-  true with the listener not actually running, which is what a start that threw for want of
-  Tailscale leaves behind. The fix is to ask the *specs* whether any is consented rather than
-  asking the running clients.
+- ~~**`AnyToolConsented()` cannot see a consented local server while the listener is off.**~~
+  **Done in 2.23.0** (`610c383`), exactly as this entry asked: it is now
+  `ToolNames.Any(consented) || _localServers.List().Any(s => s.Consented)` — the *specs*, not the
+  running clients. Kept per the never-delete rule; found still listed as open during the D-4 review.
 
 - **Turning the listener off leaves the local servers running.** `McpHost.StopAsync` stops the wait
   poll, clears `McpAutoStart`, resets `Registration` and calls `StopListenerOnlyAsync`
@@ -128,21 +120,25 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
 
 ## Test and build ergonomics
 
-- **Three of the five projects are not in the solution.** `dotnet sln list` returns
-  `src\DocaDesk.Capture` and `src\DocaDesk` only; `DocaDesk.Core`, `DocaDesk.Mcp` and
-  `tests\DocaDesk.Tests` are reached through `ProjectReference` alone. The practical damage is that
-  **`dotnet test` at the repo root builds nothing, runs nothing and exits 0** — a green command
-  that tested your code not at all. Three `dotnet sln add` calls fix it; nobody noticed because
-  everybody types the project path.
+- ~~**Three of the five projects are not in the solution.**~~ **Done** — all five are solution
+  members, and bare `dotnet test` runs the suite (`Passed: 76`, portal 2026-09-27). Kept because
+  the entry is why `AGENTS.md` carried a false build warning for so long: both files went on saying
+  `dotnet test` tested nothing. See `ISSUES.md` → `D-13`.
 
 - **A test that cannot run reports as passed.** Every guard in the suite is a bare `return`:
-  `NodeAvailable()` (`LocalMcpRegistryTests.cs:339`), a missing `client.js`
-  (`McpDocaClientHandshakeTests.cs:15-19`), `Windows.Graphics.Capture` unsupported
+  `NodeAvailable()`, a missing `client.js`, `Windows.Graphics.Capture` unsupported
   (`GraphicsCaptureGrabberTests.cs:12-15`), non-Windows DPAPI (`CoreBehaviorTests.cs:82`), unset
   `DOCADESK_E2E_*` (`LiveSmokeTests.cs:20-23`). So `Skipped: 0` in the summary is true and
   meaningless, and on a machine without node the local-MCP feature loses most of its coverage with
-  no sign of it in the output. xUnit has had `Assert.Skip` since 2.9 and the project is on 2.9.2;
-  using it would make the summary honest.
+  no sign of it in the output.
+  **Correction, 2026-09-27:** this entry used to say *"xUnit has had `Assert.Skip` since 2.9 and the
+  project is on 2.9.2; using it would make the summary honest"*. That was tried and it does not
+  compile — `Assert.SkipUnless` / `Assert.Skip` are **not** in `xunit.assert` 2.9.2
+  (`error CS0117: 'Assert' does not contain a definition for 'SkipUnless'`); dynamic skip is xUnit
+  **v3**. So the honest summary costs a framework migration, not a one-line change, which is why the
+  guards are still returns. What did get fixed is the worse half: a guard that fired because a
+  *path* had rotted rather than because the environment was genuinely missing — see `ISSUES.md`
+  → `D-11`, and `DocaRepo` for the resolver.
 
 - **`McpToolsIntegrationTests`' token fallback resolves one directory too high.**
   `Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".agent", "e2e-token.json")`
