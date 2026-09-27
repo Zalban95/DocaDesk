@@ -323,6 +323,11 @@ small, and even if the person who wrote it knew.
   and let the 30 s backoff ceiling hold, and write a line to the client's log when the stream drops
   and when it is back. Belt and braces: have a successful `tools/call` restart `_listen` if it has
   stopped.
+- **DOCA fix released as v2.113.1, 2026-09-28** (tag `v2.113.1`, branch `release-2.113.1`: v2.113.0 plus
+  the one commit, so nothing else changes on the host). `_listen` reopens for as long as the client
+  runs, logs the drop and the return, and reads the tools again on return; DOCA
+  `test/mcp-notify.test.js` has a test that fails on the old client. Also merged into DOCA's local
+  `main` (not pushed). **Not yet installed on the host** — that, and the check below, close this.
 - **How to close it:** with the DOCA fix, quit DocaDesk, wait two minutes, relaunch, grant or revoke a
   family, and see DOCA's tool count follow without pressing ↺.
 
