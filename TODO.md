@@ -4,6 +4,18 @@ Known rough edges, deliberately deferred. Each one is small and independent — 
 anything today. Anything that is a *planned feature* rather than a rough edge is a numbered phase
 in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry here.
 
+## From the hub, 2.151 → 2.161 (written from the DOCA side, 2026-10-05)
+
+- **The face as an overlay** (hub 2.161.0, hive.md §5): `/face` on the hub is a full-screen page of dots that
+  gather into a face when the hive is thinking, working, speaking or asking; `GET /api/face/stream` is its SSE
+  feed. A small always-on-top, click-through WebView2 window showing `/face` (transparent background is the
+  part to work out — the page paints `#050507`) is the DocaDesk half of TODO H8.1.
+- **stdio MCP servers that are `.cmd` files** (hub 2.158.0, `modules/mcp/spawn-spec.js`): the hub now runs them
+  through `cmd.exe`. DocaDesk's own `McpStdioClient` spawning `npx` for a local server will hit the same Node/
+  .NET rule if it uses `UseShellExecute=false` with `npx` — worth checking against `npx.cmd`.
+- **A device of kind `channel`** can appear in device lists (hub 2.157.0): a linked Telegram chat; draw it as
+  a device without a screen.
+
 ## Local MCP servers, deliberately minimal in the first pass
 
 - **A definition can be added and removed, never edited.** `LocalMcpRegistry` exposes `Add`
