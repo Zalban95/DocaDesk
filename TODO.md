@@ -4,6 +4,23 @@ Known rough edges, deliberately deferred. Each one is small and independent — 
 anything today. Anything that is a *planned feature* rather than a rough edge is a numbered phase
 in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry here.
 
+## From the hub, 2.166 → 2.198 (written from the DOCA side, 2026-10-05)
+
+- **Settings a screen reads back grew** (hub 2.184, 2.190): `GET /api/v1/settings/effective` now carries `voice`
+  (`ttsVoice`, `ttsSpeed`) and `face` (`spec`) beside the theme and tabs, each with the layer it came from.
+- **More kinds of `channel` device** (hub 2.179, 2.180, 2.196): `caps.ext.channel` is now also `matrix`, `slack` or
+  `mail`. Draw them like the Telegram ones: no screen to hand anything to.
+- **Two presets not for a person's device** (hub 2.194, 2.198): `hub` (`packs:send`) and `registry` (`packs:read`) are
+  for another DOCA hub.
+- **New `/api/v1` routes, all additive**: `/agui`, `/a2a` (card at `/.well-known/agent-card.json`), `/packs`,
+  `/packs/published`, `/clients/node`.
+- **doca-client lends screen, processes, apps and device too** (hub 2.191, `clients/node/families.js`): the same families
+  DocaDesk lends, on Linux and macOS. Its tool names (`screen_capture`, `processes_list`, `apps_open`,
+  `device_clipboard_read`…) differ from DeskTools' (`screenshot`, `open_url`, `get_clipboard_text`); aligning them would
+  let one specialist definition name the same tool on either.
+- **The panel's voice call can be talked over** (hub 2.192, experiment `bargeIn`): in WebView2 it needs echo
+  cancellation from `getUserMedia`, or the agent's own voice interrupts it.
+
 ## From the hub, 2.151 → 2.161 (written from the DOCA side, 2026-10-05)
 
 - **The face as an overlay** (hub 2.161.0, hive.md §5): `/face` on the hub is a full-screen page of dots that
