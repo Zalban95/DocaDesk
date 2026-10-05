@@ -154,6 +154,17 @@ public sealed class SimpleHttpServer : IAsyncDisposable
             var remote = (client.Client.RemoteEndPoint as IPEndPoint)?.Address;
             var req = new HttpRequest(method, path, headers, body, remote);
             var res = await _handler(req).ConfigureAwait(false);
+            if (res.Stream is not null)
+            {
+                // A held-open event stream (MCP's GET stream): headers now, then the
+                // writer owns the connection until it returns or the far end goes.
+                var head = $"HTTP/1.1 {res.StatusCode} OK\r\nContent-Type: {res.ContentType}\r\n" +
+                           "Cache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n";
+                await stream.WriteAsync(Encoding.UTF8.GetBytes(head), ct).ConfigureAwait(false);
+                await stream.FlushAsync(ct).ConfigureAwait(false);
+                await res.Stream(stream, ct).ConfigureAwait(false);
+                return;
+            }
             await WriteAsync(stream, res.StatusCode, res.ContentType, res.Body, ct).ConfigureAwait(false);
         }
         catch
@@ -170,4 +181,5 @@ public sealed class SimpleHttpServer : IAsyncDisposable
 }
 
 public sealed record HttpRequest(string Method, string Path, IReadOnlyDictionary<string, string> Headers, string Body, IPAddress? Remote);
-public sealed record HttpResponse(int StatusCode, string ContentType, string Body);
+/// <param name="Stream">When set, the response is a held-open stream written by this function instead of <paramref name="Body"/>.</param>
+public sealed record HttpResponse(int StatusCode, string ContentType, string Body, Func<Stream, CancellationToken, Task>? Stream = null);

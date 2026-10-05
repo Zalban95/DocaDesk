@@ -1,6 +1,6 @@
 # DocaDesk
 
-The Windows desktop client for a [Doca](../doca/DOCA) server — the "OpenClaw Dashboard", a
+The Windows desktop client for a [Doca](../doca) server — the "OpenClaw Dashboard", a
 Node/Express app that exposes a device-agnostic client API at `/api/v1`.
 
 Two jobs, and the second is the reason it exists:
@@ -40,6 +40,6 @@ dotnet build src/DocaDesk/DocaDesk.csproj -p:Platform=x64
 
 | Repo | What |
 |---|---|
-| `../doca/DOCA` | The server: protocol, dashboard, harness, MCP registry |
+| `../doca` | The server: protocol, dashboard, harness, MCP registry |
 | `../DocaMobile` | Android phone client (also hosts the dashboard in a WebView) |
 | `../DocaWear` | Wear OS client |

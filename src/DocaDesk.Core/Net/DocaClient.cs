@@ -261,6 +261,45 @@ public sealed class DocaClient : IAsyncDisposable
             ?? throw new UnexpectedServerException("Empty mcp/self patch response");
     }
 
+    /// <summary>
+    /// Report which tool families this device has granted (PROTOCOL.md §22.1). DOCA offers the
+    /// harness only a family that is granted here and not revoked there, so a device that never
+    /// calls this is a device with no hands, whatever it can actually do. Reporting also clears a
+    /// disconnect (`devices-control.js:91`), which is why it is the right call to make on connect.
+    /// </summary>
+    public async Task<DeviceGrantsResponse> PutDeviceGrantsAsync(DeviceGrantsRequest body, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Put, "/api/v1/devices/self/grants")
+        {
+            Content = new StringContent(DocaJson.Serialize(body), Encoding.UTF8, "application/json"),
+        };
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+        return DocaJson.Deserialize<DeviceGrantsResponse>(text)
+            ?? throw new UnexpectedServerException("Empty devices/self/grants response");
+    }
+
+    /// <summary>
+    /// Answer a `device.control` action. DOCA carries out the parts it can itself — it closes the
+    /// stream for `reconnect`/`disconnect` and ends sessions for `disconnect` — so an action can
+    /// *look* done on a client that handles nothing. The ack is the only evidence this side ran it.
+    /// </summary>
+    public async Task AckDeviceControlAsync(string controlId, DeviceControlAckRequest body, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/devices/self/control/{Uri.EscapeDataString(controlId)}/ack")
+        {
+            Content = new StringContent(DocaJson.Serialize(body), Encoding.UTF8, "application/json"),
+        };
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+    }
+
     public async Task<McpOfferView> OfferMcpAsync(McpOfferRequest body, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/mcp/offer")
