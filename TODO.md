@@ -4,6 +4,19 @@ Known rough edges, deliberately deferred. Each one is small and independent — 
 anything today. Anything that is a *planned feature* rather than a rough edge is a numbered phase
 in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry here.
 
+## From the hub, 2.199 → 2.202 (written from the DOCA side, 2026-10-05)
+
+- **MCP over a socket the device opens** (hub 2.202; PROTOCOL §22.2): instead of hosting an HTTP MCP server the hub
+  dials on the tailnet, a client may open `wss://<hub>/api/v1/mcp/host` with its token and be an MCP server on that
+  socket (`POST /mcp/offer {transport: "socket"}`, accepted in the MCP tab). It works without a tailnet address and
+  through NAT — worth offering beside the HTTP server, or instead of it when Tailscale is off.
+- **The face for the desktop overlay** (hub 2.201): `GET /api/v1/face`, `GET /face/stream` (SSE) — the state to draw.
+- **Realtime voice** (hub 2.200, an experiment): `/api/v1/realtime`, a WebSocket of PCM16 24 kHz with JSON control
+  frames; the hub holds the provider key. A push-to-talk or always-listening call in the tray.
+- **Recipes and schedules** (hub 2.201): `GET /recipes`, `POST /recipes/:id/run`, `GET /schedules`, `POST /schedules/:id/state`.
+- The panel itself (WebView2) changed: the corner face is beside the chat button (2.199), Settings → Voice → Live call,
+  OpenClaw's stack card under Settings → OpenClaw → Stack.
+
 ## From the hub, 2.166 → 2.198 (written from the DOCA side, 2026-10-05)
 
 - **Settings a screen reads back grew** (hub 2.184, 2.190): `GET /api/v1/settings/effective` now carries `voice`
