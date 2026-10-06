@@ -6,7 +6,8 @@ using Windows.System;
 namespace DocaDesk.Services;
 
 /// <summary>
-/// Hosts the Doca dashboard. No script injection, no JS bridge (M2).
+/// Hosts the Doca dashboard. No script injection, no JS bridge (M2). Its pages served alone open in a
+/// <see cref="SoloWindow"/>; the user agent ends in <c>DocaDesk/&lt;version&gt;</c>.
 ///
 /// One exception to M2's "no Authorization header", made once DOCA had sign-in
 /// (DOCA 2.56.0+, auth phase 1): the <b>first</b> load of the server root carries the
@@ -40,6 +41,10 @@ public sealed class DashboardHost
             _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
             _webView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
             _webView.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
+            // Who is asking: the panel keeps the "get the app" banner away and knows there is a second window to open.
+            var ua = _webView.CoreWebView2.Settings.UserAgent;
+            if (!ua.Contains(DocaDesk.Core.SoloPages.UserAgentMark, StringComparison.Ordinal))
+                _webView.CoreWebView2.Settings.UserAgent = $"{ua} {DocaDesk.Core.SoloPages.UserAgentMark}";
             // No WebMessageReceived bridge. The one Authorization header is NavigateHome's first load (D-9).
         }
     }
@@ -119,9 +124,12 @@ public sealed class DashboardHost
 
     private void OnNewWindowRequested(CoreWebView2 sender, CoreWebView2NewWindowRequestedEventArgs e)
     {
+        if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri)) { e.Handled = true; return; }
+        // The hub's own page served alone (⧉): a DocaDesk window sharing this session. Anything else: the browser.
+        var page = _serverRoot is null ? null : DocaDesk.Core.SoloPages.ViewOf(uri, _serverRoot);
+        if (page is not null) { _ = SoloWindow.OpenAsync(sender, e, page); return; }
         e.Handled = true;
-        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri))
-            _ = Launcher.LaunchUriAsync(uri);
+        _ = Launcher.LaunchUriAsync(uri);
     }
 
     private static bool IsSameHost(Uri a, Uri b) =>
