@@ -40,7 +40,10 @@ public sealed class PromptCoordinator
             return;
         }
 
-        if (string.Equals(type, "prompt.updated", StringComparison.OrdinalIgnoreCase))
+        // The hub sends prompt.outcome (an answer's result is ready, or failed) and prompt.progress (transcribing,
+        // thinking) — PROTOCOL §12; it never sent "prompt.updated", which this listened for alone (hub audit
+        // 2026-10-06, cl 23). Each refreshes the open window from the prompt as it now stands.
+        if (PromptEvents.IsRefresh(type))
         {
             var id = ExtractPromptId(ev.Payload);
             if (id is null || _session.Client is null) return;
