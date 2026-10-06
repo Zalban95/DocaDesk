@@ -1,0 +1,16 @@
+name: build
+on:
+  push:
+  pull_request:
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: dotnet build DocaDesk.sln -c Debug -p:Platform=x64
+      - name: Test
+        run: dotnet test tests/DocaDesk.Tests/DocaDesk.Tests.csproj -c Debug -p:Platform=x64 --no-build --logger "console;verbosity=normal"
