@@ -4,6 +4,21 @@ Known rough edges, deliberately deferred. Each one is small and independent — 
 anything today. Anything that is a *planned feature* rather than a rough edge is a numbered phase
 in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry here.
 
+
+## Audit 2026-10-06 (from the hub; full findings in DOCA docs/audits/2026-10-06-clients.md)
+
+- [ ] **Screenshots as MCP `image` content** (cl 3): `ScreenshotTool` returns image content, not a `/media` id the
+  agent can't read; keep the hub's size cap.
+- [ ] **`openWorldHint` on screen, files and clipboard reads** (cl 6): today only `readOnlyHint`, so a page on the PC
+  reaches the agent unframed.
+- [ ] **Re-report caps** (`PATCH /devices/me`) on refresh and monitor change (cl 9).
+- [ ] **Battery through `PATCH /devices/me/vars`** or `sensors.autoReport` at pairing (cl 10): the samples posted today
+  are always rejected (`not_requested`).
+- [ ] **`prompt.outcome` and `prompt.progress`** instead of `prompt.updated`, which the hub never sends (cl 23).
+- [ ] **The socket MCP transport** (`wss://<hub>/api/v1/mcp/host`) (cl 15).
+- [ ] **One tool name per family** across clients once PROTOCOL §22.1 has the table (`input_click`/`input_keys` vs the
+  phone's `input_tap`/`input_key`) (cl 27).
+
 ## From the hub, 2.203 → 2.234 (written from the DOCA side, 2026-10-06)
 
 - [x] **⧉ "open alone" in a DocaDesk window, not the browser.** (Done: `SoloWindow`, `Core/SoloPages.cs`.) The panel opens a page by itself at `/?view=<page>`
