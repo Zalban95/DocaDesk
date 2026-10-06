@@ -4,6 +4,20 @@ Known rough edges, deliberately deferred. Each one is small and independent — 
 anything today. Anything that is a *planned feature* rather than a rough edge is a numbered phase
 in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry here.
 
+## From the hub, 2.203 → 2.234 (written from the DOCA side, 2026-10-06)
+
+- [ ] **⧉ "open alone" in a DocaDesk window, not the browser.** The panel opens a page by itself at `/?view=<page>`
+  (Workstream, Machines → Live, any tab) for a screen of its own. `OnNewWindowRequested` sends every new window to
+  the system browser, where the person is not signed in. For same-host `/?view=` URLs open a second DocaDesk window
+  sharing the WebView2 profile (so the session cookie comes along), full screen on request.
+- [ ] **Say who is asking in the user agent**: append `DocaDesk/<version>` to the WebView2 user agent, as DocaMobile
+  appends `DocaMobile/<version>`. The panel uses it to keep a phone-style banner ("Get the DOCA app") away from the
+  app itself and to know there is no second browser window.
+- [x] Nothing else changes for this app: the live pages (2.223), the Archive, 3D models (WebGL, works in WebView2),
+  the grouped header, keys for services and network modes are all inside the panel it already hosts. Its MCP server
+  is unaffected. Over the local network (hub 2.233 `lan` mode) its host-only actions stay on Tailscale unless the
+  admin allows them (Settings → System → Network).
+
 ## From the hub, 2.199 → 2.202 (written from the DOCA side, 2026-10-05)
 
 - **MCP over a socket the device opens** (hub 2.202; PROTOCOL §22.2): instead of hosting an HTTP MCP server the hub
