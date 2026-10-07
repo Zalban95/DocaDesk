@@ -16,6 +16,7 @@ public sealed class PanelAttentionHost
     private readonly TrayHost? _tray;
     private readonly Func<bool> _panelShown;
     private readonly PanelAttention _state = new();
+    private readonly DocaDesk.Core.Logging.RedactingLogger _log = new();
 
     /// <param name="panelShown">True while the window shows the panel (not DocaDesk's own settings over it).</param>
     public PanelAttentionHost(Window window, TrayHost? tray, DashboardHost dashboard, Func<bool> panelShown)
@@ -23,7 +24,15 @@ public sealed class PanelAttentionHost
         _window = window;
         _tray = tray;
         _panelShown = panelShown;
-        dashboard.AttentionChanged += kinds => _window.DispatcherQueue.TryEnqueue(() => Apply(_state.Update(kinds, InFront())));
+        dashboard.AttentionChanged += kinds => _window.DispatcherQueue.TryEnqueue(() =>
+        {
+            var front = InFront();
+            var a = _state.Update(kinds, front);
+            // Kinds and what was done only: the dialog's words never reach DocaDesk.
+            _log.Info($"panel waits for: {(kinds.Count == 0 ? "nothing" : string.Join(", ", kinds.Select(k => k.ToString().ToLowerInvariant())))}"
+                + $"; window in front: {front}; notified: {a.ToastTitle is not null}; tray mark: {a.Badge}");
+            Apply(a);
+        });
         _window.Activated += (_, e) =>
         {
             if (e.WindowActivationState != WindowActivationState.Deactivated && InFront()) Apply(_state.Shown());
