@@ -345,6 +345,7 @@ Everything durable lives under `%LOCALAPPDATA%\DocaDesk\`, outside the repo:
 | `credentials\<sha256 of key>.bin` | `DpapiCredentialStore`, DPAPI `CurrentUser` scope (`CredentialStore.cs:23-31,64-68`). Keys are `device.token`, `mcp.path.secret`, `mcp.bearer.token`, `tls.pin.sha256`, `server.url`, `mcp.seal.key` (the hub's seal key, §22.3) |
 | `mcp-servers.json` (+ `.bak`) | `LocalMcpRegistry.DefaultStorePath()` (`:72-75`) |
 | `mcp-url.txt` | **Nothing — and `App.OnLaunched` now deletes it.** An old version wrote the listener URL here, path secret in clear; the write is gone and the comment in `App.xaml.cs` says why. Removing the write left the file behind on machines that had one, holding a live secret (`ISSUES.md` → `D-12`), so startup deletes it best-effort |
+| `docadesk.log` (+ `.1`) | `RedactingLogger`'s default sink, one line per call, moved to `.1` past 2 MB (`AppendRotating`; it had grown to 12.6 MB on portal before it rotated) |
 | `audit.jsonl` (+ `.1`) | `AuditLog`, appended per entry, 500 kept in memory, rotated at 2 MB (`AuditLog.cs:23-29,76-85`) |
 | `event_cursor.txt` | `FileCursorStore` (`CursorAndWatchdog.cs:15-25`) |
 | `tray.ico` | `TrayHost`, generated at runtime rather than checked in |

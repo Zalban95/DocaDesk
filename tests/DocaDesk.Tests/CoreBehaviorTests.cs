@@ -109,6 +109,32 @@ public class CredentialAndRedactionTests
     }
 }
 
+public class LogFileRotationTests
+{
+    [Fact]
+    public void A_log_past_its_size_moves_aside_and_only_one_old_file_is_kept()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ddlog-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var path = Path.Combine(dir, "docadesk.log");
+            for (var i = 0; i < 30; i++)
+                RedactingLogger.AppendRotating(path, $"line {i:D2} {new string('x', 40)}\n", maxBytes: 200);
+
+            Assert.True(new FileInfo(path).Length < 200 + 60);
+            Assert.True(File.Exists(path + ".1"));
+            Assert.Equal(new[] { "docadesk.log", "docadesk.log.1" },
+                Directory.GetFiles(dir).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+            Assert.EndsWith("line 29 " + new string('x', 40), File.ReadAllLines(path).Last());
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+}
+
 public class CertificateMatrixTests
 {
     private static System.Security.Cryptography.X509Certificates.X509Certificate2 SelfSigned()
