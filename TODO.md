@@ -11,7 +11,7 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   agent can't read; keep the hub's size cap.
 - [x] **`openWorldHint` on screen, files and clipboard reads** (cl 6): today only `readOnlyHint`, so a page on the PC
   reaches the agent unframed.
-- [~] **Re-report caps** (`PATCH /devices/me`) (cl 9) — *2026-10-07: on every connect (`PatchOwnCapsAsync`); on the `refresh` action and a monitor change still to do*
+- [x] **Re-report caps** (`PATCH /devices/me`) (cl 9) — *2026-10-07: on every connect (`PatchOwnCapsAsync`), which the `refresh` action runs too (`RefreshConnectionAsync`); a monitor, scale, touch or battery change while connected within a minute (`CapsWatcher`)*
 - [x] **Battery through `PATCH /devices/me/vars`** — *2026-10-07, `PatchVarsAsync`* or `sensors.autoReport` at pairing (cl 10): the samples posted today
   are always rejected (`not_requested`).
 - [x] **`prompt.outcome` and `prompt.progress`** instead of `prompt.updated`, which the hub never sends (cl 23). — *`DocaDesk.Core.PromptEvents`, 2026-10-07*
@@ -177,12 +177,8 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   RecycleOption.SendToRecycleBin)` is one call on Windows; left out because it is Windows-only and
   the Linux client would need its own trash (`gio trash`), which is a portability decision.
 
-- **`refresh` does not re-report caps.** §22.1 says the action should report caps *and* grants
-  again, via `PATCH /devices/{id}`. There is no client method for that route — caps are sent once,
-  at pair time (`AppSession.PairAsync`) — so `DeviceHands.OnRefreshCaps` reopens the connection and
-  re-reads the server's capabilities instead, and only the grants half is genuinely re-reported.
-  The ack says what actually happened rather than claiming both. One method on `DocaClient` and one
-  line here; left out because nothing reads a stale cap today.
+- ~~**`refresh` does not re-report caps.**~~ Fixed 2026-10-07: `refresh` runs `RefreshConnectionAsync`, which sends caps on every
+  connect, and `CapsWatcher` re-reports a change while connected.
 
 - **A `disconnect` leaves the push stream up.** `McpHost.DisconnectAsync` stops the listener, the
   local servers and the shell jobs (`D-23`) but not the push loop, so prompts and alerts keep

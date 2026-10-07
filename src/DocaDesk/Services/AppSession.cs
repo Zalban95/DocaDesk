@@ -29,6 +29,7 @@ public sealed class AppSession : IAsyncDisposable
     private PushEngine? _push;
     private readonly ICursorStore _cursor = new FileCursorStore();
     private CancellationTokenSource? _batteryCts;
+    private CancellationTokenSource? _capsCts;   // the caps watcher's loop (CapsWatcher)
 
     public AppSession(ICredentialStore? creds = null, IDocaLogger? log = null)
     {
@@ -175,9 +176,11 @@ public sealed class AppSession : IAsyncDisposable
             LastError = null;
             await EnsurePushAsync(ct).ConfigureAwait(false);
             // What this machine is now (its screens may have changed since pairing): best effort, never fatal.
-            try { await _client.PatchOwnCapsAsync(DeviceCapsFactory.FromMachine(), ct).ConfigureAwait(false); }
+            var caps = DeviceCapsFactory.FromMachine();
+            try { await _client.PatchOwnCapsAsync(caps, ct).ConfigureAwait(false); }
             catch (Exception ex) { _log.Warn("Caps report failed: " + ex.Message); }
             StartBatteryReporter();
+            StartCapsWatcher(caps);
         }
         catch (InvalidTokenException)
         {
@@ -314,8 +317,37 @@ public sealed class AppSession : IAsyncDisposable
         }, linked);
     }
 
+    /// <summary>A monitor plugged in or the scale changed while connected: re-reported within a minute (CapsWatcher).</summary>
+    private void StartCapsWatcher(DeviceCaps sent)
+    {
+        StopCapsWatcher();
+        var watcher = new CapsWatcher(DeviceCapsFactory.FromMachine, (c, t) => _client?.PatchOwnCapsAsync(c, t) ?? Task.CompletedTask);
+        watcher.Sent(sent);
+        _capsCts = new CancellationTokenSource();
+        var token = _capsCts.Token;
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try { await Task.Delay(TimeSpan.FromMinutes(1), token).ConfigureAwait(false); }
+                catch (OperationCanceledException) { break; }
+                try { if (await watcher.CheckAsync(token).ConfigureAwait(false)) _log.Info("Caps changed; reported again."); }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+                catch (Exception ex) { _log.Warn("Caps report failed: " + ex.Message); }
+            }
+        }, token);
+    }
+
+    private void StopCapsWatcher()
+    {
+        try { _capsCts?.Cancel(); } catch { /* ignore */ }
+        _capsCts?.Dispose();
+        _capsCts = null;
+    }
+
     private void StopBatteryReporter()
     {
+        StopCapsWatcher();   // both run while connected and stop together
         try { _batteryCts?.Cancel(); } catch { /* ignore */ }
         _batteryCts?.Dispose();
         _batteryCts = null;
