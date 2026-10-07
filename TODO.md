@@ -300,3 +300,14 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   the app it just built is still running — which on a developer's machine it usually is.
   `dotnet test tests\DocaDesk.Tests` and a `-p:BaseOutputPath=` for the app are what actually work,
   and neither is written down anywhere except `AGENTS.md`.
+
+## Found 2026-10-07
+- [ ] **A changed hub certificate cut DocaDesk off silently for a week.** The pin (§7.2: a mismatch fails hard, no CA
+  fallback — kept) still named the hub's old self-signed certificate after the hub moved to a Tailscale certificate on
+  2026-09-30, so from then on every call failed with "TLS validation failed: None; pin=True" in the log only; the MCP
+  listener kept serving until a restart, then stayed off because it starts only when paired and reachable. Re-pinned by
+  hand on portal (the new fingerprint checked from both ends). Wanted: when the pin mismatches, the window says the
+  hub's certificate changed, shows the old and new fingerprints and whether the new one is publicly valid for the hub's
+  name, and offers "Trust the new certificate" — the person's click, never automatic; until then the status says why
+  it cannot connect instead of "Cannot reach".
+
