@@ -232,6 +232,29 @@ public sealed class DocaClient : IAsyncDisposable
             throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
     }
 
+    /// <summary>PATCH /api/v1/devices/me {caps}: what this machine is now — its screens, inputs — so answers are shaped for it
+    /// (hub audit 2026-10-06, cl 9: the desk reported its caps only at pairing).</summary>
+    public Task PatchOwnCapsAsync(DeviceCaps caps, CancellationToken ct = default) =>
+        SendJsonAsync(HttpMethod.Patch, "/api/v1/devices/me", new Dictionary<string, object?> { ["caps"] = caps }, ct);
+
+    /// <summary>PATCH /api/v1/devices/me/vars: this device's own variables (batteryPct …), which need no sensor request —
+    /// sensor samples nobody asked for are refused (hub audit 2026-10-06, cl 10).</summary>
+    public Task PatchVarsAsync(IReadOnlyDictionary<string, object?> vars, CancellationToken ct = default) =>
+        SendJsonAsync(HttpMethod.Patch, "/api/v1/devices/me/vars", vars, ct);
+
+    private async Task SendJsonAsync(HttpMethod method, string path, object body, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(method, path)
+        {
+            Content = new StringContent(DocaJson.Serialize(body), Encoding.UTF8, "application/json"),
+        };
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+    }
+
     /// <summary>GET /api/v1/mcp/self — null when 404 (no accepted server for this device).</summary>
     public async Task<McpServerView?> GetMcpSelfAsync(CancellationToken ct = default)
     {

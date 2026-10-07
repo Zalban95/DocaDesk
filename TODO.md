@@ -11,8 +11,8 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   agent can't read; keep the hub's size cap.
 - [x] **`openWorldHint` on screen, files and clipboard reads** (cl 6): today only `readOnlyHint`, so a page on the PC
   reaches the agent unframed.
-- [ ] **Re-report caps** (`PATCH /devices/me`) on refresh and monitor change (cl 9).
-- [ ] **Battery through `PATCH /devices/me/vars`** or `sensors.autoReport` at pairing (cl 10): the samples posted today
+- [~] **Re-report caps** (`PATCH /devices/me`) (cl 9) — *2026-10-07: on every connect (`PatchOwnCapsAsync`); on the `refresh` action and a monitor change still to do*
+- [x] **Battery through `PATCH /devices/me/vars`** — *2026-10-07, `PatchVarsAsync`* or `sensors.autoReport` at pairing (cl 10): the samples posted today
   are always rejected (`not_requested`).
 - [x] **`prompt.outcome` and `prompt.progress`** instead of `prompt.updated`, which the hub never sends (cl 23). — *`DocaDesk.Core.PromptEvents`, 2026-10-07*
 - [ ] **The socket MCP transport** (`wss://<hub>/api/v1/mcp/host`) (cl 15).
