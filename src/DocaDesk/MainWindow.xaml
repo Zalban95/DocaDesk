@@ -230,6 +230,19 @@
                                         <ToggleSwitch Grid.Column="1" x:Name="McpListenerToggle" Toggled="McpListener_Toggled" MinWidth="0" VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Connect out to the hub" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Instead of listening on Tailscale, this PC opens a socket to the hub and serves its tools on it — no Tailscale address needed, and it works through NAT. Switching offers this device again; a person accepts it in the dashboard once." Style="{StaticResource SettingDesc}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="McpSocketToggle" Toggled="McpSocket_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
                                 <InfoBar x:Name="McpRegInfo" IsClosable="False" IsOpen="False" />
                                 <Border Style="{StaticResource Card}">
                                     <StackPanel Spacing="8">

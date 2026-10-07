@@ -47,8 +47,13 @@ public sealed class McpOfferRequest
     [JsonPropertyName("label")]
     public string? Label { get; set; }
 
+    /// <summary>The address the hub calls; null for a socket offer (the device dials the hub, PROTOCOL.md §22.2).</summary>
     [JsonPropertyName("url")]
-    public required string Url { get; set; }
+    public string? Url { get; set; }
+
+    /// <summary>"socket" when this device dials the hub itself; absent (http) otherwise.</summary>
+    [JsonPropertyName("transport")]
+    public string? Transport { get; set; }
 
     [JsonPropertyName("headers")]
     public Dictionary<string, string>? Headers { get; set; }

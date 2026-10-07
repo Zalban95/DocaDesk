@@ -286,6 +286,10 @@ public sealed class DocaClient : IAsyncDisposable
         return DocaJson.Deserialize<SealKeyResponse>(text);
     }
 
+    /// <summary>Whether a server certificate is one this client trusts (the pin, else the CAs) — for the MCP socket.</summary>
+    public bool TrustsCertificate(X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
+        ValidateCertificate(this, certificate, chain, errors);
+
     public async Task<McpServerView> PatchMcpSelfAsync(McpSelfPatchRequest body, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/mcp/self")
