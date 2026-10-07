@@ -316,4 +316,12 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   hub's certificate changed, shows the old and new fingerprints and whether the new one is publicly valid for the hub's
   name, and offers "Trust the new certificate" — the person's click, never automatic; until then the status says why
   it cannot connect instead of "Cannot reach".
+  *Partly done (branch desk-dialog-toast): a pin refusal is now a notification, once per run, naming the hub and that the
+  new certificate must be checked before trusting it (`DocaClientOptions.PinRejected`). The window's own "Trust the new
+  certificate" with both fingerprints is still to build.*
+- [ ] **The panel should post its own "a dialog waits" message** (hub side; DocaDesk reads it already): today
+  `PanelAttention.Script` watches DOCA's dialog element ids. Asked of the hub: `public/js/lib/dialogs.js` `appPrompt` /
+  `appConfirm` (open and every close path) and `agent-ui/approval.js` `approvalPopup` / `approvalPopupClose` call one
+  helper that posts `{type: "doca.attention", kinds: [...]}` — the full set open now — through
+  `window.chrome?.webview?.postMessage` (DocaDesk) and, if wanted, `window.DocaDevice` (DocaMobile). Kinds only.
 

@@ -11,6 +11,7 @@ public sealed partial class MainWindow : Window
     private AppSession? _session;
     private DashboardHost? _dashboard;
     private TrayHost? _tray;
+    private PanelAttentionHost? _attention;
     private McpHost? _mcp;
     private bool _settingsOpen;
     private bool _mcpUiSync;
@@ -422,6 +423,7 @@ public sealed partial class MainWindow : Window
                     StatusRetryBtn.Visibility = Visibility.Visible;
                     StatusUnpairBtn.Visibility = Visibility.Collapsed;
                 });
+                _attention = new PanelAttentionHost(this, _tray, _dashboard, () => !_settingsOpen);   // a dialog waiting in a hidden window
                 _dashboard.NavigationSucceeded += () => DispatcherQueue.TryEnqueue(() =>
                 {
                     if (_session?.State == SessionState.Paired && !_settingsOpen)

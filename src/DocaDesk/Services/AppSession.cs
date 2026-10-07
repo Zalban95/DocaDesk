@@ -406,7 +406,23 @@ public sealed class AppSession : IAsyncDisposable
             ClientVersion = DocaDeskConstants.ClientVersion,
             CertificatePolicy = new CertificatePolicy(pin),
             Logger = _log,
+            PinRejected = OnPinRejected,
         });
+    }
+
+    private int _pinToldOnce;
+
+    /// <summary>
+    /// The hub's certificate changed and the pin refuses it: every call fails until the person trusts the new one, and
+    /// that used to be said only in the log, for a week (TODO "A changed hub certificate"). Told once per run, as a
+    /// notification that opens the window; trusting the new certificate stays the person's click.
+    /// </summary>
+    private void OnPinRejected()
+    {
+        if (Interlocked.Exchange(ref _pinToldOnce, 1) != 0) return;
+        string host;
+        try { host = new Uri(ServerUrl).Host; } catch { host = "the hub"; }
+        App.UiDispatcher?.TryEnqueue(() => NotificationService.ShowCertificateChanged(host));
     }
 
     public async ValueTask DisposeAsync()

@@ -28,7 +28,7 @@ push loop has two other implementations to check against before inventing a thir
 | `src\DocaDesk.Core` | Protocol client: models, `DocaClient`, DPAPI credential store, push loop and cursor, error mapping, `RedactingLogger`. No UI dependencies. **`TreatWarningsAsErrors` is set for this project alone** (`Directory.Build.props:6`) |
 | `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, the local-server registry, and the **tool families** this device offers the harness (`ToolFamilies`, `FamilyConsent`, `FamilyTool`, `DeviceHands`, and one file of tools per family group). Must not reference WinUI — the listener has to be startable from a test with no window, and the Linux client reuses the families unchanged |
 | `src\DocaDesk.Capture` | `Windows.Graphics.Capture` with a `PrintWindow`/GDI fallback, encoding and downscaling |
-| `tests\DocaDesk.Tests` | xUnit, 148 tests (2026-10-07) |
+| `tests\DocaDesk.Tests` | xUnit, 163 tests (2026-10-07) |
 
 **`DocaDesk.sln` now contains all five projects** (`dotnet sln list`, verified on portal
 2026-09-27). It used to hold only `src\DocaDesk.Capture` and `src\DocaDesk`, and both this file and
@@ -70,7 +70,7 @@ MCP server definition. Today that holds because the host-facing surface is `PATC
 
 - `dotnet build DocaDesk.sln` builds all five projects.
 - **`dotnet test` with no argument now runs the suite** — the test project is a solution member, so
-  bare `dotnet test` reports `Passed: 148` (2026-10-07). This file used to say it *"builds nothing, runs nothing,
+  bare `dotnet test` reports `Passed: 163` (2026-10-07). This file used to say it *"builds nothing, runs nothing,
   and exits 0"*, which was true once and is the kind of stale warning that makes a reader distrust a
   green run. Naming the project — `dotnet test tests\DocaDesk.Tests` — is still the habit worth
   keeping: it is faster and unambiguous.
@@ -172,6 +172,36 @@ The hub hands this PC a secret for one use, sealed for this device alone; the ag
   `shell_job`, `elevated_run`, `processes_start`, `files_read`, `screen_capture`, `screenshot`, `get_clipboard_text`) are
   refused by the dispatcher with a sentence. Add a new tool that reads back to that set.
 - It needs the **`input` family** usable (granted, not revoked) — the family the person lent for typing.
+
+## A dialog waiting in the hidden panel (`Core\PanelAttention.cs`, `PanelAttentionHost.cs`, `DashboardHost.OnWebMessage`)
+
+DocaDesk mostly sits in the tray, and the panel inside it opens dialogs only a person can answer: the step-up
+password after 12 hours, a guarded switch's password, a question or confirm, the agent's approval popup. When one opens
+while the window is not in front showing the panel, DocaDesk shows a Windows notification (tag `panel-attention`, fixed
+words per kind, "Notify me of prompts" governs it; clicking opens the window) and marks the tray icon until it is
+answered. Answered, or the window brought forward: the notification is taken back. Each kind is told once per opening.
+
+- **The one script and the one bridge in the panel window** (M2 said none). `PanelAttention.Script`, added with
+  `AddScriptToExecuteOnDocumentCreatedAsync`, runs in the top frame only and posts
+  `{type: "doca.attention", kinds: ["password"|"question"|"approval", …]}` — the set of open dialogs — whenever it
+  changes, and once at load. `OnWebMessage` drops any message whose source is not the hub's own origin, and
+  `PanelAttention.Parse` anything not exactly that shape. Nothing goes from DocaDesk into the page this way.
+- **No dialog text, field value or command ever leaves the page**: the watcher reads element ids, a class and the
+  input's `type`, and a test holds the script to never reading `.value`, `textContent`, `innerText` or HTML. The words
+  are `PanelAttention.Words`. The log line says the kinds, whether the window was in front, and what was done.
+- **It reads the panel's own ids today** (`app-prompt-modal` + `app-prompt-input`, `app-confirm-modal`,
+  `approval-overlay`; DOCA `public/js/lib/dialogs.js`, `agent-ui/approval.js`). If the hub renames them, the watcher goes
+  quiet — nothing breaks, nothing is told. The sturdier contract is the hub posting the same message itself; until it
+  does, a hub-side rename must change the script here.
+- **In front** is visible, the foreground window, not minimised, and showing the panel (not DocaDesk's settings). A
+  window merely visible behind another app is not in front, and is told. Windows itself holds back the banner while an
+  app is full screen or Do not disturb is on; the notification is then in the notification centre, and the log says it
+  was sent.
+- Checked on portal 2026-10-07 against hub 2.302.1 (the branch's exe from its own output, the panel driven through a
+  loopback DevTools port given to that test run only): a password prompt and an approval in the hidden window each
+  raised their notification (read back from the notification history: fixed words only) and the mark; answering
+  withdrew it. The in-front case is covered by the tests only — Windows would not hand a window started from a
+  scheduled task the foreground.
 
 ## Tool consent (`ToolConsent`, `McpHttpListener.cs`)
 
@@ -361,7 +391,7 @@ its summary verbatim — brief §6.1 requires the log to stay useful. The conseq
 
 ## Tests (`tests\DocaDesk.Tests`)
 
-`dotnet test tests\DocaDesk.Tests` — 148 tests, no server, no display, no API key, no installed MCP
+`dotnet test tests\DocaDesk.Tests` — 163 tests, no server, no display, no API key, no installed MCP
 server.
 
 - **`LocalMcpRegistryTests` writes a real stdio MCP server as a `const string` of JavaScript
