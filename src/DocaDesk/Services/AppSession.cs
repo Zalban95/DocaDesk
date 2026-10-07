@@ -174,6 +174,9 @@ public sealed class AppSession : IAsyncDisposable
             State = SessionState.Paired;
             LastError = null;
             await EnsurePushAsync(ct).ConfigureAwait(false);
+            // What this machine is now (its screens may have changed since pairing): best effort, never fatal.
+            try { await _client.PatchOwnCapsAsync(DeviceCapsFactory.FromMachine(), ct).ConfigureAwait(false); }
+            catch (Exception ex) { _log.Warn("Caps report failed: " + ex.Message); }
             StartBatteryReporter();
         }
         catch (InvalidTokenException)
@@ -286,9 +289,8 @@ public sealed class AppSession : IAsyncDisposable
                     var client = _client;
                     if (client is not null && DeviceCapsFactory.TryReadBatteryPercent(out var pct))
                     {
-                        await client.PostSensorSamplesAsync(
-                            [new SensorSample { Sensor = "battery", Value = pct }],
-                            ct: linked).ConfigureAwait(false);
+                        // A variable, not a sensor sample: the hub refuses samples nobody requested (cl 10).
+                        await client.PatchVarsAsync(new Dictionary<string, object?> { ["batteryPct"] = pct }, linked).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException) when (linked.IsCancellationRequested)
