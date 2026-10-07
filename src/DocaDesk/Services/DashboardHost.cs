@@ -6,8 +6,13 @@ using Windows.System;
 namespace DocaDesk.Services;
 
 /// <summary>
-/// Hosts the Doca dashboard. No script injection, no JS bridge (M2). Its pages served alone open in a
-/// <see cref="SoloWindow"/>; the user agent ends in <c>DocaDesk/&lt;version&gt;</c>.
+/// Hosts the Doca dashboard. Its pages served alone open in a <see cref="SoloWindow"/>; the user agent ends in
+/// <c>DocaDesk/&lt;version&gt;</c>.
+///
+/// M2 said no script injection and no JS bridge. One of each now exists, both one-way and carrying no data:
+/// <see cref="DocaDesk.Core.PanelAttention.Script"/> watches which of the panel's dialogs are open and posts only their
+/// kinds, so a hidden window can say a password or an answer is waiting. Nothing travels from DocaDesk into the page
+/// through it, and a message from any other origin is dropped.
 ///
 /// One exception to M2's "no Authorization header", made once DOCA had sign-in
 /// (DOCA 2.56.0+, auth phase 1): the <b>first</b> load of the server root carries the
@@ -45,8 +50,25 @@ public sealed class DashboardHost : DocaDesk.Mcp.ISecretField
             var ua = _webView.CoreWebView2.Settings.UserAgent;
             if (!ua.Contains(DocaDesk.Core.SoloPages.UserAgentMark, StringComparison.Ordinal))
                 _webView.CoreWebView2.Settings.UserAgent = $"{ua} {DocaDesk.Core.SoloPages.UserAgentMark}";
-            // No WebMessageReceived bridge. The one Authorization header is NavigateHome's first load (D-9).
+            // The one Authorization header is NavigateHome's first load (D-9).
+            _webView.CoreWebView2.WebMessageReceived += OnWebMessage;
+            try { await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(DocaDesk.Core.PanelAttention.Script); }
+            catch { /* without it the window simply cannot say a dialog is waiting */ }
         }
+    }
+
+    /// <summary>The panel's dialogs that wait for the person changed (kinds only, from the hub's own page).</summary>
+    public event Action<HashSet<DocaDesk.Core.AttentionKind>>? AttentionChanged;
+
+    private void OnWebMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        if (_serverRoot is null || !Uri.TryCreate(e.Source, UriKind.Absolute, out var from)
+            || !IsSameHost(from, _serverRoot) || !string.Equals(from.Scheme, _serverRoot.Scheme, StringComparison.OrdinalIgnoreCase))
+            return;
+        string? json;
+        try { json = e.WebMessageAsJson; } catch { return; }
+        if (DocaDesk.Core.PanelAttention.Parse(json) is { } kinds)
+            AttentionChanged?.Invoke(kinds);
     }
 
     private void OnNavigationCompleted(CoreWebView2 sender, CoreWebView2NavigationCompletedEventArgs e)

@@ -50,6 +50,53 @@ public sealed class TrayHost : IDisposable
 
     public void SetTooltip(string text) => _tray.ToolTipText = text;
 
+    private Icon? _plain;
+    private Icon? _marked;
+    private bool _attention;
+
+    /// <summary>
+    /// A mark on the tray icon while the panel waits for the person (a password, a question, an agent asking): drawn
+    /// over whatever icon the tray has, kept in memory, and taken off when it is answered.
+    /// </summary>
+    public void SetAttention(bool on)
+    {
+        if (_attention == on || _disposed) return;
+        _attention = on;
+        try
+        {
+            _plain ??= _tray.Icon;
+            if (on)
+            {
+                _marked ??= Marked(_plain);
+                if (_marked is not null) _tray.Icon = _marked;
+            }
+            else if (_plain is not null)
+                _tray.Icon = _plain;
+        }
+        catch
+        {
+            // The tray keeps the icon it had; the notification still told the person.
+        }
+    }
+
+    private static Icon? Marked(Icon? baseIcon)
+    {
+        using var bmp = new Bitmap(32, 32);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            if (baseIcon is not null) g.DrawIcon(baseIcon, new Rectangle(0, 0, 32, 32));
+            else g.Clear(Color.FromArgb(255, 24, 90, 140));
+            using var ring = new SolidBrush(Color.White);
+            using var dot = new SolidBrush(Color.FromArgb(255, 232, 72, 56));
+            g.FillEllipse(ring, 16, 0, 16, 16);
+            g.FillEllipse(dot, 18, 2, 12, 12);
+        }
+        var h = bmp.GetHicon();
+        try { using var tmp = Icon.FromHandle(h); return (Icon)tmp.Clone(); }
+        finally { DestroyIcon(h); }
+    }
+
     private void OnClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
     {
         if (_quitRequested)
@@ -138,5 +185,6 @@ public sealed class TrayHost : IDisposable
         _disposed = true;
         try { _window.AppWindow.Closing -= OnClosing; } catch { /* ignore */ }
         _tray.Dispose();
+        _marked?.Dispose();
     }
 }

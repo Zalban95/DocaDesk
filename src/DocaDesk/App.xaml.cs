@@ -14,6 +14,8 @@ public partial class App : Application
     public static McpHost Mcp { get; private set; } = null!;
     public static PromptCoordinator Prompts { get; private set; } = null!;
     public static DispatcherQueue? UiDispatcher { get; private set; }
+    /// <summary>Bring the main window to the front (a notification was clicked).</summary>
+    public static Action? ShowMainWindow { get; private set; }
 
     public App()
     {
@@ -62,6 +64,7 @@ public partial class App : Application
         _window = new MainWindow();
         _tray = new TrayHost(_window) { BeforeQuit = () => Mcp.DisposeAsync().AsTask() };
         _window.AttachTray(_tray);
+        ShowMainWindow = () => _tray?.ShowWindow();
         _window.BindMcp(Mcp);
 
         AppInstance.GetCurrent().Activated += OnActivated;
