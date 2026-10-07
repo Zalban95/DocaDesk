@@ -147,7 +147,7 @@ file sealed class ScreenshotTool : IMcpTool
         var media = uploaded.Media;
         var text =
             $"mediaId={media?.Id}\nurl={media?.Url}\nbytes={media?.Bytes}\nmime={media?.Mime}\nencoding={shot.EncodingReason}\npath={shot.PathUsed}";
-        return new McpToolResult { Text = text };
+        return new McpToolResult { Text = text, ImageBytes = shot.Bytes, ImageMime = shot.Mime };
     }
 }
 

@@ -7,7 +7,7 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
 
 ## Audit 2026-10-06 (from the hub; full findings in DOCA docs/audits/2026-10-06-clients.md)
 
-- [ ] **Screenshots as MCP `image` content** (cl 3): `ScreenshotTool` returns image content, not a `/media` id the
+- [x] **Screenshots as MCP `image` content** — *McpToolResult.ImageBytes, 2026-10-07* (cl 3): `ScreenshotTool` returns image content, not a `/media` id the
   agent can't read; keep the hub's size cap.
 - [ ] **`openWorldHint` on screen, files and clipboard reads** (cl 6): today only `readOnlyHint`, so a page on the PC
   reaches the agent unframed.

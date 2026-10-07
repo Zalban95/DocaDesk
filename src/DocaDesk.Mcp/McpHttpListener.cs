@@ -21,6 +21,15 @@ public sealed class McpToolResult
 {
     public bool IsError { get; init; }
     public string Text { get; init; } = "";
+    /// <summary>A picture to send as an MCP image part beside the text (a screenshot), so the agent sees it — a media id
+    /// alone reached no agent tool (hub audit 2026-10-06, cl 3).</summary>
+    public byte[]? ImageBytes { get; init; }
+    public string ImageMime { get; init; } = "image/png";
+
+    /// <summary>The MCP content array for this result.</summary>
+    public object[] Content() => ImageBytes is { Length: > 0 }
+        ? new object[] { new { type = "text", text = Text }, new { type = "image", data = Convert.ToBase64String(ImageBytes), mimeType = ImageMime } }
+        : new object[] { new { type = "text", text = Text } };
 }
 
 /// <summary>
@@ -387,7 +396,7 @@ public sealed class McpHttpListener : IAsyncDisposable
 
         return new
         {
-            content = new[] { new { type = "text", text = result.Text } },
+            content = result.Content(),
             isError = result.IsError,
         };
     }
