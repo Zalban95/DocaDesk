@@ -28,7 +28,7 @@ push loop has two other implementations to check against before inventing a thir
 | `src\DocaDesk.Core` | Protocol client: models, `DocaClient`, DPAPI credential store, push loop and cursor, error mapping, `RedactingLogger`. No UI dependencies. **`TreatWarningsAsErrors` is set for this project alone** (`Directory.Build.props:6`) |
 | `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, the local-server registry, and the **tool families** this device offers the harness (`ToolFamilies`, `FamilyConsent`, `FamilyTool`, `DeviceHands`, and one file of tools per family group). Must not reference WinUI — the listener has to be startable from a test with no window, and the Linux client reuses the families unchanged |
 | `src\DocaDesk.Capture` | `Windows.Graphics.Capture` with a `PrintWindow`/GDI fallback, encoding and downscaling |
-| `tests\DocaDesk.Tests` | xUnit, 147 tests (2026-10-07) |
+| `tests\DocaDesk.Tests` | xUnit, 148 tests (2026-10-07) |
 
 **`DocaDesk.sln` now contains all five projects** (`dotnet sln list`, verified on portal
 2026-09-27). It used to hold only `src\DocaDesk.Capture` and `src\DocaDesk`, and both this file and
@@ -70,7 +70,7 @@ MCP server definition. Today that holds because the host-facing surface is `PATC
 
 - `dotnet build DocaDesk.sln` builds all five projects.
 - **`dotnet test` with no argument now runs the suite** — the test project is a solution member, so
-  bare `dotnet test` reports `Passed: 147` (2026-10-07). This file used to say it *"builds nothing, runs nothing,
+  bare `dotnet test` reports `Passed: 148` (2026-10-07). This file used to say it *"builds nothing, runs nothing,
   and exits 0"*, which was true once and is the kind of stale warning that makes a reader distrust a
   green run. Naming the project — `dotnet test tests\DocaDesk.Tests` — is still the habit worth
   keeping: it is faster and unambiguous.
@@ -361,7 +361,7 @@ its summary verbatim — brief §6.1 requires the log to stay useful. The conseq
 
 ## Tests (`tests\DocaDesk.Tests`)
 
-`dotnet test tests\DocaDesk.Tests` — 147 tests, no server, no display, no API key, no installed MCP
+`dotnet test tests\DocaDesk.Tests` — 148 tests, no server, no display, no API key, no installed MCP
 server.
 
 - **`LocalMcpRegistryTests` writes a real stdio MCP server as a `const string` of JavaScript
@@ -385,6 +385,11 @@ server.
     (`!(handle->flags & UV_HANDLE_CLOSING)`), which reads as a failure after a successful call.
     The node runners are bounded at 60 s and kill the tree, because the unbounded version hung the
     whole run rather than failing (`ISSUES.md` → `D-14`).
+- **Run from an SSH session, two capture tests fail** (`GraphicsCaptureGrabberTests.TryCreate_succeeds_when_WGC_supported`,
+  `ScreenCapturer_pipeline_ready_when_device_ok`: `COMException: The specified service does not exist as an installed
+  service`): an SSH logon has no desktop, so Windows.Graphics.Capture reports supported and then cannot start. Run the
+  suite in the person's session instead (a `.cmd` writing to a log, started by a one-shot `schtasks … /IT`): 148 of 148
+  there on portal, 2026-10-07.
 - **A test that cannot run returns early, so it is reported as *passed*, not skipped.** Every guard
   is a bare `return` — `node` missing (`LocalMcpRegistryTests.cs`), the sibling DOCA repo absent,
   `Windows.Graphics.Capture` unsupported (`GraphicsCaptureGrabberTests.cs:12-15`), non-Windows DPAPI
