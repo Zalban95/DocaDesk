@@ -360,8 +360,15 @@ public sealed class McpHttpListener : IAsyncDisposable
             name = t.Name,
             description = t.Description,
             inputSchema = t.InputSchema,
-            annotations = new { readOnlyHint = t.ReadOnlyHint },
+            annotations = new { readOnlyHint = t.ReadOnlyHint, openWorldHint = OpenWorld.Contains(t.Name) },
         }).ToArray();
+
+    /// <summary>Tools whose results are other people's words — a screen, a file, the clipboard: the hub frames them as
+    /// such (openWorldHint), so a page on this desk cannot give the agent orders (hub audit 2026-10-06, cl 6).</summary>
+    public static readonly HashSet<string> OpenWorld = new(StringComparer.Ordinal)
+    {
+        "screen_capture", "screen_windows", "files_read", "files_list", "get_clipboard_text", "list_windows", "screenshot",
+    };
 
     private async Task<object> CallToolAsync(JsonNode? parameters)
     {
