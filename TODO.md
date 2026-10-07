@@ -9,7 +9,7 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
 
 - [x] **Screenshots as MCP `image` content** — *McpToolResult.ImageBytes, 2026-10-07* (cl 3): `ScreenshotTool` returns image content, not a `/media` id the
   agent can't read; keep the hub's size cap.
-- [ ] **`openWorldHint` on screen, files and clipboard reads** (cl 6): today only `readOnlyHint`, so a page on the PC
+- [x] **`openWorldHint` on screen, files and clipboard reads** (cl 6): today only `readOnlyHint`, so a page on the PC
   reaches the agent unframed.
 - [ ] **Re-report caps** (`PATCH /devices/me`) on refresh and monitor change (cl 9).
 - [ ] **Battery through `PATCH /devices/me/vars`** or `sensors.autoReport` at pairing (cl 10): the samples posted today
