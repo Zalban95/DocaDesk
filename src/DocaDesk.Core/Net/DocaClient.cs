@@ -18,6 +18,8 @@ public sealed class DocaClientOptions
     public string ClientVersion { get; init; } = "0.1.0";
     public CertificatePolicy CertificatePolicy { get; init; } = new();
     public IDocaLogger? Logger { get; init; }
+    /// <summary>Called when the hub's certificate is refused because it is not the pinned one (the hub's changed).</summary>
+    public Action? PinRejected { get; init; }
 }
 
 /// <summary>
@@ -78,7 +80,12 @@ public sealed class DocaClient : IAsyncDisposable
         var cert2 = certificate as X509Certificate2 ?? (certificate is not null ? new X509Certificate2(certificate) : null);
         var ok = _options.CertificatePolicy.Validate(cert2, chain, errors);
         if (!ok)
+        {
             _log.Warn($"TLS validation failed: {errors}; pin={_options.CertificatePolicy.HasPin}");
+            // With a pin, the pin alone decides (§7.2): a refusal means the hub now shows another certificate.
+            if (_options.CertificatePolicy.HasPin && cert2 is not null)
+                try { _options.PinRejected?.Invoke(); } catch { /* telling is never worth failing the handshake path */ }
+        }
         return ok;
     }
 
