@@ -99,6 +99,22 @@ public sealed class McpDispatcher
         var name = parameters?["name"]?.GetValue<string>()
             ?? throw new McpRpcException(-32602, "name required");
         var args = parameters?["arguments"];
+
+        // The hidden tool: never in tools/list, so only the hub, which sealed it, calls it (§22.3).
+        if (name == SealedSecrets.ToolName && _opt.Sealed is { } seal)
+        {
+            using var limit = new CancellationTokenSource(_opt.ToolCallTimeout);
+            var used = await seal.FillAsync(args, limit.Token).ConfigureAwait(false);
+            return new { content = used.Content(), isError = used.IsError };
+        }
+
+        // A value just typed, pasted or filled must not be read straight back (security review 2026-10-07).
+        if (_opt.Sealed?.Blocks(name) is { } held)
+        {
+            _opt.Audit?.Add("mcp.held", $"{name}: {held}");
+            return new { content = new[] { new { type = "text", text = held } }, isError = true };
+        }
+
         var tool = AllTools().FirstOrDefault(t => t.Name == name)
             ?? throw new McpRpcException(-32601, $"Unknown tool: {name}");
 

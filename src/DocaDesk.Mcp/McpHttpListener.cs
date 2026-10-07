@@ -93,6 +93,11 @@ public sealed class McpListenerOptions
     /// has to stop appearing.
     /// </summary>
     public Func<IReadOnlyList<IMcpTool>>? DynamicTools { get; set; }
+    /// <summary>
+    /// Sealed secrets (PROTOCOL.md §22.3): answers the hidden <c>secret_fill</c>, and refuses the read tools while a
+    /// secret was just used. Null: this server takes no secrets.
+    /// </summary>
+    public SealedSecrets? Sealed { get; set; }
     /// <summary>A tool that never answers must not hold the request open forever.</summary>
     public TimeSpan ToolCallTimeout { get; set; } = TimeSpan.FromSeconds(120);
 }

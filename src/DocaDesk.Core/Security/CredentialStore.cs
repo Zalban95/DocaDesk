@@ -99,4 +99,6 @@ public static class CredentialKeys
     public const string McpBearerToken = "mcp.bearer.token";
     public const string CertPinSha256 = "tls.pin.sha256";
     public const string ServerUrl = "server.url";
+    /// <summary>The hub's seal key for this device and its additional data (PROTOCOL.md §22.3), as JSON.</summary>
+    public const string McpSealKey = "mcp.seal.key";
 }

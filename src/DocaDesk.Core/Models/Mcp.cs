@@ -60,6 +60,22 @@ public sealed class McpOfferRequest
     public string? Note { get; set; }
 }
 
+/// <summary>GET /api/v1/mcp/self/seal (PROTOCOL.md §22.3). <c>Key</c> is a secret: kept with DPAPI, never logged.</summary>
+public sealed class SealKeyResponse
+{
+    [JsonPropertyName("v")]
+    public int V { get; set; }
+
+    [JsonPropertyName("alg")]
+    public string? Alg { get; set; }
+
+    [JsonPropertyName("key")]
+    public string? Key { get; set; }
+
+    [JsonPropertyName("aad")]
+    public string? Aad { get; set; }
+}
+
 public sealed class McpOfferResponse
 {
     [JsonPropertyName("offer")]

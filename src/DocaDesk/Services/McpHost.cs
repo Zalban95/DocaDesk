@@ -36,6 +36,8 @@ public sealed class McpHost : IAsyncDisposable
     private string _bearer = NewBearerToken();
     private bool _enforceBearer;
     private CancellationTokenSource? _waitPollCts;
+    private SealKey? _sealKey;
+    private readonly SealedSecrets _sealed;
 
     public McpHost(AppSession session, ICredentialStore? creds = null, IDocaLogger? log = null)
     {
@@ -77,6 +79,15 @@ public sealed class McpHost : IAsyncDisposable
         // harness nothing from a device that has not reported, and a report also clears a
         // disconnect on its side (devices-control.js:91) — so this is how the device says it is
         // back, which is why it hangs off the session rather than off the listener.
+        // Sealed secrets (§22.3): used through the input family — the one the person lent for typing — on this
+        // machine's keyboard, its clipboard or the panel's own password field; never read by the agent.
+        _sealed = new SealedSecrets(
+            () => _sealKey,
+            () => _families.IsUsable(ToolFamilies.Input) ? null
+                : "This machine does not lend its input family (typing and the clipboard), so it takes no secrets. Turn it on in DocaDesk → Settings → This device.",
+            new WindowsSecretSink(() => SecretField),
+            _audit);
+
         _session.Changed += OnSessionChanged;
         _session.EventReceived += OnPushEventAsync;
     }
@@ -89,8 +100,36 @@ public sealed class McpHost : IAsyncDisposable
         if (state == _lastReportedState) return;
         _lastReportedState = state;
         if (state == SessionState.Paired)
+        {
             _ = _hands.ReportGrantsAsync();
+            _ = TakeSealKeyAsync();
+        }
     }
+
+    /// <summary>
+    /// Take the hub's seal key for this device (§22.3): asked on every connect — the same key while paired, a new one
+    /// for a new pairing — and kept with DPAPI, so a hub that is briefly unreachable still finds the key here. A hub
+    /// without sealed secrets answers 404 and nothing changes.
+    /// </summary>
+    private async Task TakeSealKeyAsync()
+    {
+        try
+        {
+            var r = _session.Client is { } c ? await c.GetSealKeyAsync().ConfigureAwait(false) : null;
+            if (r?.Key is not { Length: > 0 } || string.IsNullOrEmpty(r.Aad)) return;
+            var key = new SealKey(Convert.FromBase64String(r.Key), r.Aad);
+            if (key.Key.Length != 32) return;
+            _sealKey = key;
+            await _creds.SaveAsync(CredentialKeys.McpSealKey, key.ToStored()).ConfigureAwait(false);
+        }
+        catch (Exception ex) { _log.Warn("Seal key not taken: " + ex.GetType().Name); }
+    }
+
+    /// <summary>The panel's page, for a secret that belongs to a site (set by the window that shows it).</summary>
+    public ISecretField? SecretField { get; set; }
+
+    /// <summary>Sealed secrets on this machine: the hidden tool and the read hold after a use.</summary>
+    public SealedSecrets Sealed => _sealed;
 
     /// <summary>What this machine's person has allowed the harness to do here, per family (§22.1).</summary>
     public FamilyConsent Families => _families;
@@ -131,6 +170,8 @@ public sealed class McpHost : IAsyncDisposable
 
         foreach (var tool in ToolNames)
             _consent.Set(tool, AppPrefs.GetToolConsent(tool));
+
+        _sealKey = SealKey.FromStored(await _creds.LoadAsync(CredentialKeys.McpSealKey));
     }
 
     public void SetConsent(string tool, bool enabled)
@@ -177,6 +218,7 @@ public sealed class McpHost : IAsyncDisposable
             // stops being offered.
             DynamicTools = () => _localServers.Tools().Concat(FamilyTool.Offered(familyTools, _families)).ToArray(),
             RequiredBearerToken = _bearer,
+            Sealed = _sealed,
             // Offer/patch the header first; enforce only after host is known to hold it (§3.4).
             EnforceBearer = _enforceBearer,
         });
@@ -475,6 +517,7 @@ public sealed class McpHost : IAsyncDisposable
         _session.EventReceived -= OnPushEventAsync;
         StopWaitPoll();
         await StopListenerOnlyAsync().ConfigureAwait(false);
+        await _sealed.DisarmAsync().ConfigureAwait(false);   // a secret left on the clipboard goes when DocaDesk does
         // These are our child processes; leaving them behind would leak them. Background shell
         // jobs too: after quit nobody could see or stop them.
         ShellTools.StopAllJobs();

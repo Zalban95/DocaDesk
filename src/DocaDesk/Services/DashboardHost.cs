@@ -16,7 +16,7 @@ namespace DocaDesk.Services;
 /// that navigation, only to the configured server; every later request rides the
 /// cookie DOCA set, and the token is never attached to anything else. ISSUES.md D-9.
 /// </summary>
-public sealed class DashboardHost
+public sealed class DashboardHost : DocaDesk.Mcp.ISecretField
 {
     private readonly WebView2 _webView;
     private Uri? _serverRoot;
@@ -131,6 +131,78 @@ public sealed class DashboardHost
         e.Handled = true;
         _ = Launcher.LaunchUriAsync(uri);
     }
+
+    /* ── Sealed secrets: a credential field of the page this window shows (PROTOCOL.md §22.3) ── */
+
+    /// <summary>
+    /// Fill a password (or one-time-code) field of the page the panel window shows — only when that page's origin is
+    /// exactly <paramref name="origin"/>, checked here and again inside the page, where it cannot change underneath.
+    /// <paramref name="reference"/> counts the page's credential fields in document order from 1; 0 means the focused
+    /// one, else the only one. The value reaches the page as a JSON-encoded argument, never spliced into script text,
+    /// and is set the way clients/browser/page.js fillSecret does: the native setter, then input and change.
+    /// </summary>
+    public Task FillAsync(string origin, int? tab, int reference, string value, CancellationToken ct)
+    {
+        if (tab is not null and not 0)
+            throw new DocaDesk.Mcp.SecretRefusedException("DocaDesk fills only the page its panel window shows: leave tab out.");
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_webView.DispatcherQueue.TryEnqueue(async () =>
+            {
+                try { await FillOnUiAsync(origin, reference, value); tcs.TrySetResult(); }
+                catch (Exception ex) { tcs.TrySetException(ex); }
+            }))
+            throw new DocaDesk.Mcp.SecretRefusedException("DocaDesk's panel window is closing: try again.");
+        return tcs.Task;
+    }
+
+    private async Task FillOnUiAsync(string origin, int reference, string value)
+    {
+        var core = _webView.CoreWebView2
+            ?? throw new DocaDesk.Mcp.SecretRefusedException("DocaDesk's panel has no page loaded yet.");
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var want) || !Uri.TryCreate(core.Source, UriKind.Absolute, out var shown)
+            || !string.Equals(OriginOf(want), OriginOf(shown), StringComparison.OrdinalIgnoreCase))
+            throw new DocaDesk.Mcp.SecretRefusedException($"The page DocaDesk shows is not on {origin}, so the secret was not filled.");
+
+        const string Script = """
+            ((origin, ref, value) => {
+              if (location.origin !== new URL(origin).origin) return { error: 'origin' };
+              const ac = el => String(el.getAttribute('autocomplete') || '').toLowerCase();
+              const takes = el => !!el && el.tagName === 'INPUT'
+                && (String(el.type || '').toLowerCase() === 'password' || /(current-password|new-password|one-time-code)/.test(ac(el)));
+              const all = Array.from(document.querySelectorAll('input')).filter(takes);
+              const el = ref > 0 ? all[ref - 1] : (takes(document.activeElement) ? document.activeElement : (all.length === 1 ? all[0] : null));
+              if (!el) return { error: 'ref', count: all.length };
+              el.focus();
+              const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+              if (d && d.set) d.set.call(el, value); else el.value = value;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              return { ok: true };
+            })
+            """;
+        var call = $"{Script}({System.Text.Json.JsonSerializer.Serialize(origin)}, {reference}, {System.Text.Json.JsonSerializer.Serialize(value)})";
+        string result;
+        try { result = await core.ExecuteScriptAsync(call); }
+        catch (Exception ex) { throw new DocaDesk.Mcp.SecretRefusedException($"The page would not run the fill ({ex.GetType().Name})."); }
+        finally { call = null; }
+
+        using var doc = System.Text.Json.JsonDocument.Parse(string.IsNullOrEmpty(result) ? "null" : result);
+        var r = doc.RootElement;
+        if (r.ValueKind == System.Text.Json.JsonValueKind.Object && r.TryGetProperty("ok", out _)) return;
+        var why = r.ValueKind == System.Text.Json.JsonValueKind.Object && r.TryGetProperty("error", out var e) ? e.GetString() : null;
+        var count = r.ValueKind == System.Text.Json.JsonValueKind.Object && r.TryGetProperty("count", out var c) && c.TryGetInt32(out var n) ? n : 0;
+        throw new DocaDesk.Mcp.SecretRefusedException(why switch
+        {
+            "origin" => $"The page DocaDesk shows is not on {origin}, so the secret was not filled.",
+            "ref" when reference > 0 => $"There is no password field [{reference}] on the page: it has {count} (numbered from 1 in page order).",
+            "ref" => count == 0
+                ? "The page DocaDesk shows has no password field (or one marked for a password or a one-time code), so a secret does not go into it."
+                : $"The page has {count} password fields and none has the focus: give ref 1 to {count}.",
+            _ => "The page did not take the secret.",
+        });
+    }
+
+    private static string OriginOf(Uri u) => $"{u.Scheme}://{u.Host}:{u.Port}";
 
     private static bool IsSameHost(Uri a, Uri b) =>
         string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase) && a.Port == b.Port;

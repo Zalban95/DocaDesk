@@ -43,6 +43,7 @@ public sealed partial class MainWindow : Window
         // DOCA's "Ask again" (device.control ask). Without this the action was acked "no window"
         // and the person was never asked (D-22).
         _mcp.Hands.AskForFamily = AskFamilyAsync;
+        if (_dashboard is not null) _mcp.SecretField = _dashboard;
         RefreshMcpUi();
     }
 
@@ -407,6 +408,7 @@ public sealed partial class MainWindow : Window
             if (_dashboard is null)
             {
                 _dashboard = new DashboardHost(DashboardView);
+                if (_mcp is not null) _mcp.SecretField = _dashboard;   // a site's secret goes only into this page (§22.3)
                 _dashboard.NavigationFailed += msg => DispatcherQueue.TryEnqueue(() =>
                 {
                     ShowOnly(status: true);
