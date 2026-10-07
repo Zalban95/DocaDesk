@@ -32,6 +32,16 @@ public static class AppPrefs
         set => WriteBool("McpAutoStart", value);
     }
 
+    /// <summary>
+    /// When true, the MCP server is served on a socket this PC opens to the hub (PROTOCOL.md §22.2) instead of the
+    /// listener on the tailnet. Off by default: the listener stays until a person switches.
+    /// </summary>
+    public static bool McpOverSocket
+    {
+        get => ReadBool("McpOverSocket", false);
+        set => WriteBool("McpOverSocket", value);
+    }
+
     /// <summary>When true, the window X hides to the tray. Default is false: X quits.</summary>
     public static bool CloseToTray
     {

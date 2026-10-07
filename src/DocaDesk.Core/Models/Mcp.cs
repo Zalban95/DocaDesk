@@ -47,8 +47,13 @@ public sealed class McpOfferRequest
     [JsonPropertyName("label")]
     public string? Label { get; set; }
 
+    /// <summary>The address the hub calls; null for a socket offer (the device dials the hub, PROTOCOL.md §22.2).</summary>
     [JsonPropertyName("url")]
-    public required string Url { get; set; }
+    public string? Url { get; set; }
+
+    /// <summary>"socket" when this device dials the hub itself; absent (http) otherwise.</summary>
+    [JsonPropertyName("transport")]
+    public string? Transport { get; set; }
 
     [JsonPropertyName("headers")]
     public Dictionary<string, string>? Headers { get; set; }
@@ -58,6 +63,22 @@ public sealed class McpOfferRequest
 
     [JsonPropertyName("note")]
     public string? Note { get; set; }
+}
+
+/// <summary>GET /api/v1/mcp/self/seal (PROTOCOL.md §22.3). <c>Key</c> is a secret: kept with DPAPI, never logged.</summary>
+public sealed class SealKeyResponse
+{
+    [JsonPropertyName("v")]
+    public int V { get; set; }
+
+    [JsonPropertyName("alg")]
+    public string? Alg { get; set; }
+
+    [JsonPropertyName("key")]
+    public string? Key { get; set; }
+
+    [JsonPropertyName("aad")]
+    public string? Aad { get; set; }
 }
 
 public sealed class McpOfferResponse

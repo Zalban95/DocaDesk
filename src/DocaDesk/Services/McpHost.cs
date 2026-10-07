@@ -32,10 +32,13 @@ public sealed class McpHost : IAsyncDisposable
     private readonly FamilyConsent _families;
     private readonly DeviceHands _hands;
     private McpHttpListener? _listener;
+    private McpSocketHost? _socket;
     private string _secret = McpHttpListener.NewPathSecret();
     private string _bearer = NewBearerToken();
     private bool _enforceBearer;
     private CancellationTokenSource? _waitPollCts;
+    private SealKey? _sealKey;
+    private readonly SealedSecrets _sealed;
 
     public McpHost(AppSession session, ICredentialStore? creds = null, IDocaLogger? log = null)
     {
@@ -44,7 +47,7 @@ public sealed class McpHost : IAsyncDisposable
         _log = log ?? new RedactingLogger();
         _localServers = new LocalMcpRegistry(LocalMcpRegistry.DefaultStorePath(), _consent, _audit);
         // Tell DOCA too: it holds our event stream open and lists the tools again (DOCA 2.90.0+).
-        _localServers.ToolsChanged += () => { Changed?.Invoke(); _listener?.NotifyToolsChanged(); };
+        _localServers.ToolsChanged += () => { Changed?.Invoke(); NotifyToolsChanged(); };
 
         // Devices as hands (§22.1). The consent lives in HKCU like every other app-local boolean,
         // but FamilyConsent itself knows nothing about the registry — the Linux client supplies its
@@ -67,7 +70,7 @@ public sealed class McpHost : IAsyncDisposable
         {
             // A family the person just allowed changes what this listener offers, so DOCA has to
             // re-list — the same reason a local server starting does (D-8).
-            _listener?.NotifyToolsChanged();
+            NotifyToolsChanged();
             Changed?.Invoke();
         };
         _hands.Changed += () => Changed?.Invoke();
@@ -77,6 +80,15 @@ public sealed class McpHost : IAsyncDisposable
         // harness nothing from a device that has not reported, and a report also clears a
         // disconnect on its side (devices-control.js:91) — so this is how the device says it is
         // back, which is why it hangs off the session rather than off the listener.
+        // Sealed secrets (§22.3): used through the input family — the one the person lent for typing — on this
+        // machine's keyboard, its clipboard or the panel's own password field; never read by the agent.
+        _sealed = new SealedSecrets(
+            () => _sealKey,
+            () => _families.IsUsable(ToolFamilies.Input) ? null
+                : "This machine does not lend its input family (typing and the clipboard), so it takes no secrets. Turn it on in DocaDesk → Settings → This device.",
+            new WindowsSecretSink(() => SecretField),
+            _audit);
+
         _session.Changed += OnSessionChanged;
         _session.EventReceived += OnPushEventAsync;
     }
@@ -89,8 +101,36 @@ public sealed class McpHost : IAsyncDisposable
         if (state == _lastReportedState) return;
         _lastReportedState = state;
         if (state == SessionState.Paired)
+        {
             _ = _hands.ReportGrantsAsync();
+            _ = TakeSealKeyAsync();
+        }
     }
+
+    /// <summary>
+    /// Take the hub's seal key for this device (§22.3): asked on every connect — the same key while paired, a new one
+    /// for a new pairing — and kept with DPAPI, so a hub that is briefly unreachable still finds the key here. A hub
+    /// without sealed secrets answers 404 and nothing changes.
+    /// </summary>
+    private async Task TakeSealKeyAsync()
+    {
+        try
+        {
+            var r = _session.Client is { } c ? await c.GetSealKeyAsync().ConfigureAwait(false) : null;
+            if (r?.Key is not { Length: > 0 } || string.IsNullOrEmpty(r.Aad)) return;
+            var key = new SealKey(Convert.FromBase64String(r.Key), r.Aad);
+            if (key.Key.Length != 32) return;
+            _sealKey = key;
+            await _creds.SaveAsync(CredentialKeys.McpSealKey, key.ToStored()).ConfigureAwait(false);
+        }
+        catch (Exception ex) { _log.Warn("Seal key not taken: " + ex.GetType().Name); }
+    }
+
+    /// <summary>The panel's page, for a secret that belongs to a site (set by the window that shows it).</summary>
+    public ISecretField? SecretField { get; set; }
+
+    /// <summary>Sealed secrets on this machine: the hidden tool and the read hold after a use.</summary>
+    public SealedSecrets Sealed => _sealed;
 
     /// <summary>What this machine's person has allowed the harness to do here, per family (§22.1).</summary>
     public FamilyConsent Families => _families;
@@ -102,9 +142,14 @@ public sealed class McpHost : IAsyncDisposable
     public ToolConsent Consent => _consent;
     /// <summary>The MCP servers running on this machine, whose tools this listener forwards.</summary>
     public LocalMcpRegistry LocalServers => _localServers;
-    public bool IsRunning => _listener?.IsRunning == true;
-    public string? Url => _listener?.BoundUrl;
-    public string? LastError => _listener?.LastError;
+    public bool IsRunning => _listener?.IsRunning == true || _socket?.IsRunning == true;
+    /// <summary>The listener's URL, or the hub socket's address when this PC dials the hub (§22.2).</summary>
+    public string? Url => _socket?.Address ?? _listener?.BoundUrl;
+    public string? LastError => _socket?.LastError ?? _listener?.LastError;
+    /// <summary>The person's choice: serve the tools on a socket this PC opens to the hub instead of a tailnet listener.</summary>
+    public bool OverSocket => AppPrefs.McpOverSocket;
+    /// <summary>True while the socket to the hub is open (socket mode only).</summary>
+    public bool SocketConnected => _socket?.IsConnected == true;
     public McpRegistrationState Registration { get; private set; } = McpRegistrationState.Idle;
     public string? RegistrationMessage { get; private set; }
     public bool BearerEnforced => _enforceBearer;
@@ -131,6 +176,8 @@ public sealed class McpHost : IAsyncDisposable
 
         foreach (var tool in ToolNames)
             _consent.Set(tool, AppPrefs.GetToolConsent(tool));
+
+        _sealKey = SealKey.FromStored(await _creds.LoadAsync(CredentialKeys.McpSealKey));
     }
 
     public void SetConsent(string tool, bool enabled)
@@ -166,7 +213,7 @@ public sealed class McpHost : IAsyncDisposable
             .ToArray();
         foreach (var t in familyTools)
             _consent.Register(t.Name, true);
-        _listener = new McpHttpListener(new McpListenerOptions
+        var options = new McpListenerOptions
         {
             PathSecret = _secret,
             AllowedRemoteHost = host,
@@ -177,12 +224,31 @@ public sealed class McpHost : IAsyncDisposable
             // stops being offered.
             DynamicTools = () => _localServers.Tools().Concat(FamilyTool.Offered(familyTools, _families)).ToArray(),
             RequiredBearerToken = _bearer,
+            Sealed = _sealed,
             // Offer/patch the header first; enforce only after host is known to hold it (§3.4).
             EnforceBearer = _enforceBearer,
-        });
+        };
         try
         {
-            await _listener.StartAsync().ConfigureAwait(false);
+            if (AppPrefs.McpOverSocket)
+            {
+                // §22.2: this PC dials the hub and is an MCP server on that socket — no tailnet address needed. The
+                // same dispatcher as the listener, so consent, families and sealed secrets are unchanged.
+                _socket = new McpSocketHost(new McpSocketOptions
+                {
+                    Endpoint = McpSocketHost.EndpointFor(new Uri(_session.ServerUrl)),
+                    Token = () => _session.Client?.Token,
+                    TrustCertificate = (cert, chain, errors) => _session.Client?.TrustsCertificate(cert, chain, errors) == true,
+                    Audit = _audit,
+                }, new McpDispatcher(options));
+                _socket.StateChanged += () => Changed?.Invoke();
+                _socket.Start();
+            }
+            else
+            {
+                _listener = new McpHttpListener(options);
+                await _listener.StartAsync().ConfigureAwait(false);
+            }
         }
         catch
         {
@@ -225,6 +291,25 @@ public sealed class McpHost : IAsyncDisposable
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Switch between the tailnet listener (the default) and the socket this PC opens to the hub (§22.2). A running
+    /// server restarts the new way and offers itself again; a person accepts that offer in the dashboard once.
+    /// </summary>
+    public async Task SetOverSocketAsync(bool socket)
+    {
+        if (AppPrefs.McpOverSocket == socket) return;
+        AppPrefs.McpOverSocket = socket;
+        _audit.Add("mcp.transport", socket ? "socket (this PC dials the hub)" : "http listener on the tailnet");
+        if (IsRunning) await StartAsync().ConfigureAwait(false);
+        else Changed?.Invoke();
+    }
+
+    private void NotifyToolsChanged()
+    {
+        _listener?.NotifyToolsChanged();
+        _socket?.NotifyToolsChanged();
+    }
+
     public async Task RegenerateSecretAsync()
     {
         var was = IsRunning;
@@ -251,14 +336,20 @@ public sealed class McpHost : IAsyncDisposable
     public async Task ReconcileRegistrationAsync(CancellationToken ct = default, bool offerOn404 = true)
     {
         var client = _session.Client;
+        var socket = _socket is not null;
         var url = _listener?.BoundUrl;
-        if (client is null || string.IsNullOrEmpty(url))
+        if (client is null || (!socket && string.IsNullOrEmpty(url)))
             return;
 
         var headers = AuthHeaders();
         try
         {
             var self = await client.GetMcpSelfAsync(ct).ConfigureAwait(false);
+            // A definition the other way (http while this PC now dials, or the reverse) is offered afresh: accepting
+            // the new offer replaces it on the hub, and until then the old one simply cannot reach us.
+            var wanted = socket ? "socket" : "http";
+            if (self is not null && !string.Equals(self.Transport ?? "http", wanted, StringComparison.OrdinalIgnoreCase))
+                self = null;
             if (self is null)
             {
                 if (!offerOn404)
@@ -270,14 +361,22 @@ public sealed class McpHost : IAsyncDisposable
                     return;
                 }
 
-                var offer = await client.OfferMcpAsync(new McpOfferRequest
-                {
-                    Label = Environment.MachineName,
-                    Url = url,
-                    Headers = headers,
-                    Tools = OfferedToolNames(),
-                    Note = "Windows desktop tools (DocaDesk)",
-                }, ct).ConfigureAwait(false);
+                var offer = await client.OfferMcpAsync(socket
+                    ? new McpOfferRequest
+                    {
+                        Label = Environment.MachineName,
+                        Transport = "socket",
+                        Tools = OfferedToolNames(),
+                        Note = "Windows desktop tools (DocaDesk), over the socket this PC opens to the hub",
+                    }
+                    : new McpOfferRequest
+                    {
+                        Label = Environment.MachineName,
+                        Url = url,
+                        Headers = headers,
+                        Tools = OfferedToolNames(),
+                        Note = "Windows desktop tools (DocaDesk)",
+                    }, ct).ConfigureAwait(false);
                 Registration = McpRegistrationState.WaitingForAccept;
                 RegistrationMessage =
                     $"Waiting to be accepted in the DOCA dashboard (offer {offer.Id ?? "pending"}). Not an error.";
@@ -289,6 +388,15 @@ public sealed class McpHost : IAsyncDisposable
             }
 
             StopWaitPoll();
+
+            if (socket)
+            {
+                // Nothing to re-address: the hub knows this PC by its socket.
+                Registration = McpRegistrationState.Registered;
+                RegistrationMessage = $"Registered on host as {self.Id ?? self.Label ?? "mcp server"}, over the socket this PC opens.";
+                Changed?.Invoke();
+                return;
+            }
 
             // Always PATCH. GET values are masked, so a rotated bearer looks
             // identical to a matching one — skipping the write is how a live
@@ -451,6 +559,11 @@ public sealed class McpHost : IAsyncDisposable
 
     private async Task StopListenerOnlyAsync()
     {
+        if (_socket is not null)
+        {
+            await _socket.DisposeAsync().ConfigureAwait(false);
+            _socket = null;
+        }
         if (_listener is not null)
         {
             await _listener.DisposeAsync().ConfigureAwait(false);
@@ -475,6 +588,7 @@ public sealed class McpHost : IAsyncDisposable
         _session.EventReceived -= OnPushEventAsync;
         StopWaitPoll();
         await StopListenerOnlyAsync().ConfigureAwait(false);
+        await _sealed.DisarmAsync().ConfigureAwait(false);   // a secret left on the clipboard goes when DocaDesk does
         // These are our child processes; leaving them behind would leak them. Background shell
         // jobs too: after quit nobody could see or stop them.
         ShellTools.StopAllJobs();

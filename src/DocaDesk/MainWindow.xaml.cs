@@ -43,6 +43,7 @@ public sealed partial class MainWindow : Window
         // DOCA's "Ask again" (device.control ask). Without this the action was acked "no window"
         // and the person was never asked (D-22).
         _mcp.Hands.AskForFamily = AskFamilyAsync;
+        if (_dashboard is not null) _mcp.SecretField = _dashboard;
         RefreshMcpUi();
     }
 
@@ -95,7 +96,10 @@ public sealed partial class MainWindow : Window
         try
         {
             McpListenerToggle.IsOn = _mcp.IsRunning;
-            McpUrlBox.Text = _mcp.Url ?? "(listener off — enable above; requires Tailscale IPv4)";
+            McpSocketToggle.IsOn = _mcp.OverSocket;
+            McpUrlBox.Text = _mcp.Url ?? (_mcp.OverSocket
+                ? "(off — enable above; this PC will dial the hub)"
+                : "(listener off — enable above; requires Tailscale IPv4)");
             var reg = _mcp.RegistrationMessage
                 ?? (_mcp.Registration switch
                 {
@@ -103,7 +107,9 @@ public sealed partial class MainWindow : Window
                     McpRegistrationState.Registered => "Registered with DOCA for this device.",
                     _ => _mcp.IsRunning ? "Listener running." : "",
                 });
-            if (_mcp.BearerEnforced)
+            if (_mcp.OverSocket && _mcp.IsRunning)
+                reg += _mcp.SocketConnected ? " Socket to the hub open." : $" Socket not open: {_mcp.LastError ?? "connecting…"}";
+            else if (_mcp.BearerEnforced)
                 reg += " Bearer auth enforced.";
             McpRegInfo.Message = reg.Trim();
             McpRegInfo.Severity = _mcp.Registration == McpRegistrationState.Registered
@@ -407,6 +413,7 @@ public sealed partial class MainWindow : Window
             if (_dashboard is null)
             {
                 _dashboard = new DashboardHost(DashboardView);
+                if (_mcp is not null) _mcp.SecretField = _dashboard;   // a site's secret goes only into this page (§22.3)
                 _dashboard.NavigationFailed += msg => DispatcherQueue.TryEnqueue(() =>
                 {
                     ShowOnly(status: true);
@@ -678,6 +685,14 @@ public sealed partial class MainWindow : Window
             McpListenerToggle.IsOn = false;
             StatusBar.Text = "MCP: " + ex.Message;
         }
+        RefreshMcpUi();
+    }
+
+    private async void McpSocket_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_mcpUiSync || _mcp is null) return;
+        try { await _mcp.SetOverSocketAsync(McpSocketToggle.IsOn); }
+        catch (Exception ex) { StatusBar.Text = "MCP: " + ex.Message; }
         RefreshMcpUi();
     }
 

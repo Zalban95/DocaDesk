@@ -269,6 +269,27 @@ public sealed class DocaClient : IAsyncDisposable
         return DocaJson.Deserialize<McpSelfResponse>(text)?.Server;
     }
 
+    /// <summary>
+    /// GET /api/v1/mcp/self/seal — the key the hub seals secrets for this device with (PROTOCOL.md §22.3). Null when
+    /// the hub answers 404: it has no sealed secrets, and the device carries on without.
+    /// </summary>
+    public async Task<SealKeyResponse?> GetSealKeyAsync(CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/v1/mcp/self/seal");
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (res.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+        return DocaJson.Deserialize<SealKeyResponse>(text);
+    }
+
+    /// <summary>Whether a server certificate is one this client trusts (the pin, else the CAs) — for the MCP socket.</summary>
+    public bool TrustsCertificate(X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
+        ValidateCertificate(this, certificate, chain, errors);
+
     public async Task<McpServerView> PatchMcpSelfAsync(McpSelfPatchRequest body, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/mcp/self")

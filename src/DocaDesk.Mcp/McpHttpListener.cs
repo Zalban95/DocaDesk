@@ -93,6 +93,11 @@ public sealed class McpListenerOptions
     /// has to stop appearing.
     /// </summary>
     public Func<IReadOnlyList<IMcpTool>>? DynamicTools { get; set; }
+    /// <summary>
+    /// Sealed secrets (PROTOCOL.md §22.3): answers the hidden <c>secret_fill</c>, and refuses the read tools while a
+    /// secret was just used. Null: this server takes no secrets.
+    /// </summary>
+    public SealedSecrets? Sealed { get; set; }
     /// <summary>A tool that never answers must not hold the request open forever.</summary>
     public TimeSpan ToolCallTimeout { get; set; } = TimeSpan.FromSeconds(120);
 }
@@ -104,6 +109,7 @@ public sealed class McpListenerOptions
 public sealed class McpHttpListener : IAsyncDisposable
 {
     private readonly McpListenerOptions _opt;
+    private readonly McpDispatcher _dispatch;
     private SimpleHttpServer? _server;
 
     public bool IsRunning => _server?.IsRunning == true;
@@ -115,7 +121,11 @@ public sealed class McpHttpListener : IAsyncDisposable
 
     public bool EnforceBearer => _opt.EnforceBearer;
 
-    public McpHttpListener(McpListenerOptions options) => _opt = options;
+    public McpHttpListener(McpListenerOptions options)
+    {
+        _opt = options;
+        _dispatch = new McpDispatcher(options);
+    }
 
     public static string NewPathSecret()
     {
@@ -217,7 +227,7 @@ public sealed class McpHttpListener : IAsyncDisposable
         if (!string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase))
             return new HttpResponse(405, "text/plain", "POST only");
 
-        var json = await DispatchJsonRpcAsync(req.Body).ConfigureAwait(false);
+        var json = await _dispatch.DispatchAsync(req.Body, "http").ConfigureAwait(false);
         return new HttpResponse(200, "application/json", json);
     }
 
@@ -291,139 +301,8 @@ public sealed class McpHttpListener : IAsyncDisposable
         return remote.ToString().StartsWith("100.", StringComparison.Ordinal);
     }
 
-    private async Task<string> DispatchJsonRpcAsync(string body)
-    {
-        JsonNode? root;
-        try { root = JsonNode.Parse(body); }
-        catch { return Err(null, -32700, "parse error"); }
-
-        var id = root?["id"]?.DeepClone();
-        var method = root?["method"]?.GetValue<string>();
-        var parameters = root?["params"];
-        if (string.IsNullOrEmpty(method))
-            return Err(id, -32600, "invalid request");
-
-        try
-        {
-            object? result = method switch
-            {
-                "initialize" => new
-                {
-                    protocolVersion = "2025-06-18",
-                    // listChanged: DOCA then holds the GET stream open and hears NotifyToolsChanged.
-                    capabilities = new { tools = new { listChanged = true } },
-                    serverInfo = new { name = "DocaDesk", version = "0.1.0" },
-                },
-                "tools/list" => new { tools = ListTools() },
-                "tools/call" => await CallToolAsync(parameters).ConfigureAwait(false),
-                "ping" => new { },
-                _ => throw new McpRpcException(-32601, $"Method not found: {method}"),
-            };
-
-            var ok = new JsonObject
-            {
-                ["jsonrpc"] = "2.0",
-                ["id"] = id is null ? null : JsonNode.Parse(id.ToJsonString()),
-                ["result"] = JsonSerializer.SerializeToNode(result),
-            };
-            return ok.ToJsonString();
-        }
-        catch (McpRpcException rex)
-        {
-            return Err(id, rex.Code, rex.Message);
-        }
-        catch (Exception ex)
-        {
-            // Keeping only ex.Message discards the one thing that identifies an
-            // unexpected failure — and some exceptions carry no message at all.
-            // A clipboard call once reached the agent as
-            // {"code":-32603,"message":""}: an internal error stating nothing,
-            // which cannot be diagnosed from either end. The type is always
-            // there, so say it, and put the whole exception somewhere readable.
-            var why = string.IsNullOrWhiteSpace(ex.Message)
-                ? $"{ex.GetType().Name} (no message)"
-                : $"{ex.GetType().Name}: {ex.Message}";
-            _opt.Audit?.Add("mcp.error", $"{method}: {why}", detail: ex.ToString());
-            return Err(id, -32603, why);
-        }
-    }
-
-    private IEnumerable<IMcpTool> AllTools()
-    {
-        var dynamic = _opt.DynamicTools?.Invoke() ?? Array.Empty<IMcpTool>();
-        return dynamic.Count == 0 ? _opt.Tools : _opt.Tools.Concat(dynamic);
-    }
-
-    private object[] ListTools() =>
-        AllTools().Select(t => (object)new
-        {
-            name = t.Name,
-            description = t.Description,
-            inputSchema = t.InputSchema,
-            annotations = new { readOnlyHint = t.ReadOnlyHint, openWorldHint = OpenWorld.Contains(t.Name) },
-        }).ToArray();
-
-    /// <summary>Tools whose results are other people's words — a screen, a file, the clipboard: the hub frames them as
-    /// such (openWorldHint), so a page on this desk cannot give the agent orders (hub audit 2026-10-06, cl 6).</summary>
-    public static readonly HashSet<string> OpenWorld = new(StringComparer.Ordinal)
-    {
-        "screen_capture", "screen_windows", "files_read", "files_list", "get_clipboard_text", "list_windows", "screenshot",
-    };
-
-    private async Task<object> CallToolAsync(JsonNode? parameters)
-    {
-        var name = parameters?["name"]?.GetValue<string>()
-            ?? throw new McpRpcException(-32602, "name required");
-        var args = parameters?["arguments"];
-        var tool = AllTools().FirstOrDefault(t => t.Name == name)
-            ?? throw new McpRpcException(-32601, $"Unknown tool: {name}");
-
-        if (!_opt.Consent.IsEnabled(name))
-        {
-            _opt.Audit?.Add("mcp.denied", $"Tool {name} blocked by local consent");
-            return new
-            {
-                content = new[] { new { type = "text", text = $"Tool '{name}' is disabled in DocaDesk settings." } },
-                isError = true,
-            };
-        }
-
-        _opt.Audit?.Add("mcp.call", $"tools/call {name}");
-        using var deadline = new CancellationTokenSource(_opt.ToolCallTimeout);
-        McpToolResult result;
-        try
-        {
-            result = await tool.CallAsync(args, "http", deadline.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
-        {
-            _opt.Audit?.Add("mcp.timeout", $"{name} after {_opt.ToolCallTimeout.TotalSeconds:0.#}s");
-            result = new McpToolResult { IsError = true, Text = $"Error: '{name}' timed out after {_opt.ToolCallTimeout.TotalSeconds:0.#}s." };
-        }
-
-        return new
-        {
-            content = result.Content(),
-            isError = result.IsError,
-        };
-    }
-
-    private static string Err(JsonNode? id, int code, string message)
-    {
-        var o = new JsonObject
-        {
-            ["jsonrpc"] = "2.0",
-            ["id"] = id is null ? null : JsonNode.Parse(id.ToJsonString()),
-            ["error"] = new JsonObject { ["code"] = code, ["message"] = message },
-        };
-        return o.ToJsonString();
-    }
+    /// <summary>Tools whose results are other people's words (kept here for its callers; the set is the dispatcher's).</summary>
+    public static HashSet<string> OpenWorld => McpDispatcher.OpenWorld;
 
     public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
-}
-
-file sealed class McpRpcException : Exception
-{
-    public int Code { get; }
-    public McpRpcException(int code, string message) : base(message) => Code = code;
 }
