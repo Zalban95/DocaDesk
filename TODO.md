@@ -15,7 +15,11 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
 - [x] **Battery through `PATCH /devices/me/vars`** — *2026-10-07, `PatchVarsAsync`* or `sensors.autoReport` at pairing (cl 10): the samples posted today
   are always rejected (`not_requested`).
 - [x] **`prompt.outcome` and `prompt.progress`** instead of `prompt.updated`, which the hub never sends (cl 23). — *`DocaDesk.Core.PromptEvents`, 2026-10-07*
-- [ ] **The socket MCP transport** (`wss://<hub>/api/v1/mcp/host`) (cl 15).
+- [x] **The socket MCP transport** (`wss://<hub>/api/v1/mcp/host`) (cl 15). — *`McpSocketHost`, 2026-10-07: Settings → This
+  device → "Connect out to the hub"; the listener stays the default.* Not yet run against a live hub from portal.
+- [x] **Sealed secrets** (hub P1.3, PROTOCOL §22.3, docs/api/sealed-secrets.md) — *`SealedSecrets`, `WindowsSecretSink`,
+  `DashboardHost.FillAsync`, 2026-10-07.* Still to watch on a real hub: a field fill in the panel's WebView2, and
+  whether Win+V history really leaves the pasted secret out (the formats are set; nobody has looked).
 - [ ] **One tool name per family** across clients once PROTOCOL §22.1 has the table (`input_click`/`input_keys` vs the
   phone's `input_tap`/`input_key`) (cl 27).
 

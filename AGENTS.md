@@ -28,7 +28,7 @@ push loop has two other implementations to check against before inventing a thir
 | `src\DocaDesk.Core` | Protocol client: models, `DocaClient`, DPAPI credential store, push loop and cursor, error mapping, `RedactingLogger`. No UI dependencies. **`TreatWarningsAsErrors` is set for this project alone** (`Directory.Build.props:6`) |
 | `src\DocaDesk.Mcp` | The MCP listener, its hand-rolled HTTP server, the stdio client for local servers, the local-server registry, and the **tool families** this device offers the harness (`ToolFamilies`, `FamilyConsent`, `FamilyTool`, `DeviceHands`, and one file of tools per family group). Must not reference WinUI — the listener has to be startable from a test with no window, and the Linux client reuses the families unchanged |
 | `src\DocaDesk.Capture` | `Windows.Graphics.Capture` with a `PrintWindow`/GDI fallback, encoding and downscaling |
-| `tests\DocaDesk.Tests` | xUnit, 101 tests |
+| `tests\DocaDesk.Tests` | xUnit, 147 tests (2026-10-07) |
 
 **`DocaDesk.sln` now contains all five projects** (`dotnet sln list`, verified on portal
 2026-09-27). It used to hold only `src\DocaDesk.Capture` and `src\DocaDesk`, and both this file and
@@ -70,7 +70,7 @@ MCP server definition. Today that holds because the host-facing surface is `PATC
 
 - `dotnet build DocaDesk.sln` builds all five projects.
 - **`dotnet test` with no argument now runs the suite** — the test project is a solution member, so
-  bare `dotnet test` reports `Passed: 101`. This file used to say it *"builds nothing, runs nothing,
+  bare `dotnet test` reports `Passed: 147` (2026-10-07). This file used to say it *"builds nothing, runs nothing,
   and exits 0"*, which was true once and is the kind of stale warning that makes a reader distrust a
   green run. Naming the project — `dotnet test tests\DocaDesk.Tests` — is still the habit worth
   keeping: it is faster and unambiguous.
@@ -94,10 +94,11 @@ MCP server definition. Today that holds because the host-facing surface is `PATC
   `.editorconfig` rules enforced in CI, no formatter. `TreatWarningsAsErrors` on `DocaDesk.Core`
   is the only thing that turns sloppiness into a failure.
 
-## The MCP listener (`src\DocaDesk.Mcp\McpHttpListener.cs`)
+## The MCP listener (`src\DocaDesk.Mcp\McpHttpListener.cs`, `McpDispatcher.cs`)
 
 Hand-rolled JSON-RPC 2.0 over HTTP: POST in, JSON out, on `SimpleHttpServer` — a raw `TcpListener`
-chosen to avoid `HttpListener`'s URL ACL requirement. It answers `initialize`, `tools/list`,
+chosen to avoid `HttpListener`'s URL ACL requirement. The server itself is `McpDispatcher` (one per
+start, shared by both transports — the listener here and the socket below); it answers `initialize`, `tools/list`,
 `tools/call` and `ping`, reporting `protocolVersion "2025-06-18"` and `serverInfo.name "DocaDesk"`
 (`:235-239`). **That shape is dictated by `modules/mcp/client.js`, not by a spec.** Read that file
 before changing anything here. Since DOCA 2.90.0 it holds the GET event stream open when
@@ -131,7 +132,48 @@ The security invariants are **all of them, not one of them**:
   on `tools/call`. A timeout returns an `isError` content block (`:304-308`), not a dead socket —
   the model has to be able to read what went wrong.
 
-## Tool consent (`ToolConsent`, same file)
+## The socket transport (`src\DocaDesk.Mcp\McpSocketHost.cs`, PROTOCOL.md §22.2)
+
+Settings → This device → **Connect out to the hub** (`AppPrefs.McpOverSocket`, off by default) replaces the listener
+with a socket this PC opens: `wss://<hub>/api/v1/mcp/host` with the device token as a bearer, the certificate trusted as
+`DocaClient` trusts it (`TrustsCertificate`: the pin, else the CAs). The hub sends JSON-RPC requests, one per text frame;
+each is answered by its id through the same `McpDispatcher`, concurrently (a long `tools/call` does not hold up the
+next). A notification (no id) is never answered. A keepalive notification every 25 s; `NotifyToolsChanged()` sends
+`notifications/tools/list_changed` down it. Dropped → dialled again, 1 s doubling to 60 s. **Close 4000 means a newer
+connection from this device replaced this one — not fought over**, the loop stops and says so (DocaDesk open twice).
+
+- The offer is `{transport: "socket", label, tools, note}` with no URL. `ReconcileRegistrationAsync` treats a definition
+  of the other transport like a 404: it offers afresh, and accepting replaces the old one on the hub (same label, same
+  slug). A socket definition is never PATCHed — there is no address to correct.
+- No Tailscale address is needed, and none of the listener's invariants (secret path, bearer, remote check) apply:
+  the socket is outbound, authenticated by the device token, and only the hub is at the other end.
+
+## Sealed secrets (`SealedSecrets.cs`, `WindowsSecretSink.cs`, `DashboardHost.FillAsync`; PROTOCOL.md §22.3)
+
+The hub hands this PC a secret for one use, sealed for this device alone; the agent never sees it. Exactly what
+`docs/api/sealed-secrets.md` (hub) asks of DocaDesk, with its tightened rules:
+
+- **The key**: `GET /api/v1/mcp/self/seal`, taken on every connect (`McpHost.TakeSealKeyAsync`), DPAPI as
+  `mcp.seal.key` (key and `aad` as JSON). The device id is the `aad` after `doca-seal:` — DocaDesk stores no device id
+  of its own. A 404 hub has no sealed secrets.
+- **`secret_fill` is answered by the dispatcher and never listed.** AES-256-GCM (`iv` 12 bytes, `data` = ciphertext ‖
+  16-byte tag); refused: another device, `|now − iat| ≥ 5 min`, a nonce seen in the last 10 min. The answer is
+  `{done, uses, counted, seconds}`; **the value is never in an answer, an audit line or an error** — an OS failure is
+  reported by exception type only.
+- **A payload with an `origin` is only ever a `field`** — `type`/`clipboard` refuse it. `field` fills a credential input
+  (password, or autocomplete `current-password`/`new-password`/`one-time-code`) of the page the panel's WebView2 shows,
+  only on exactly that origin (checked in C# against `CoreWebView2.Source`, and again in the page). The value is a
+  JSON-encoded argument to a fixed script, never spliced into its text. **DocaDesk has no page snapshot, so `ref` counts
+  the page's credential fields in document order from 1; 0 = the focused one, else the only one.** `tab` must be absent.
+- `type`: `SendInput` `KEYEVENTF_UNICODE` (the `input_type` path). `clipboard`: Win32 with
+  `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory = 0`, `CanUploadToCloudClipboard = 0`;
+  cleared after `ttlSec` only if it still holds the secret (SHA-256 compare); `counted: false`.
+- **The read hold**: for 60 s after any use, and while a secret is on the clipboard, `SealedSecrets.Reads` (`shell`,
+  `shell_job`, `elevated_run`, `processes_start`, `files_read`, `screen_capture`, `screenshot`, `get_clipboard_text`) are
+  refused by the dispatcher with a sentence. Add a new tool that reads back to that set.
+- It needs the **`input` family** usable (granted, not revoked) — the family the person lent for typing.
+
+## Tool consent (`ToolConsent`, `McpHttpListener.cs`)
 
 - **Everything is off.** The dictionary is seeded with the five desk tools all `false` (`:28-35`),
   and `McpHost.InitializeAsync` restores each from HKCU with `false` as the fallback
@@ -300,7 +342,7 @@ Everything durable lives under `%LOCALAPPDATA%\DocaDesk\`, outside the repo:
 
 | Path | Written by |
 |---|---|
-| `credentials\<sha256 of key>.bin` | `DpapiCredentialStore`, DPAPI `CurrentUser` scope (`CredentialStore.cs:23-31,64-68`). Keys are `device.token`, `mcp.path.secret`, `mcp.bearer.token`, `tls.pin.sha256`, `server.url` (`:97-101`) |
+| `credentials\<sha256 of key>.bin` | `DpapiCredentialStore`, DPAPI `CurrentUser` scope (`CredentialStore.cs:23-31,64-68`). Keys are `device.token`, `mcp.path.secret`, `mcp.bearer.token`, `tls.pin.sha256`, `server.url`, `mcp.seal.key` (the hub's seal key, §22.3) |
 | `mcp-servers.json` (+ `.bak`) | `LocalMcpRegistry.DefaultStorePath()` (`:72-75`) |
 | `mcp-url.txt` | **Nothing — and `App.OnLaunched` now deletes it.** An old version wrote the listener URL here, path secret in clear; the write is gone and the comment in `App.xaml.cs` says why. Removing the write left the file behind on machines that had one, holding a live secret (`ISSUES.md` → `D-12`), so startup deletes it best-effort |
 | `audit.jsonl` (+ `.1`) | `AuditLog`, appended per entry, 500 kept in memory, rotated at 2 MB (`AuditLog.cs:23-29,76-85`) |
@@ -308,7 +350,7 @@ Everything durable lives under `%LOCALAPPDATA%\DocaDesk\`, outside the repo:
 | `tray.ico` | `TrayHost`, generated at runtime rather than checked in |
 
 App-local booleans are HKCU `Software\DocaDesk` REG_DWORDs, not a file: `StartMinimized`,
-`NotifyPrompts`, `NotifyAlerts`, `McpAutoStart`, `Tool.<name>` per desk tool, and `Family.<name>` per
+`NotifyPrompts`, `NotifyAlerts`, `McpAutoStart`, `McpOverSocket`, `Tool.<name>` per desk tool, and `Family.<name>` per
 tool family — the last one read as `bool?`, because absent means *never asked* (`AppPrefs.cs`).
 
 **The audit log is not redacted, and that is the design.** `RedactingLogger` covers `Bearer …`,
@@ -318,7 +360,7 @@ its summary verbatim — brief §6.1 requires the log to stay useful. The conseq
 
 ## Tests (`tests\DocaDesk.Tests`)
 
-`dotnet test tests\DocaDesk.Tests` — 101 tests, no server, no display, no API key, no installed MCP
+`dotnet test tests\DocaDesk.Tests` — 147 tests, no server, no display, no API key, no installed MCP
 server.
 
 - **`LocalMcpRegistryTests` writes a real stdio MCP server as a `const string` of JavaScript
@@ -395,10 +437,9 @@ server.
   `get_clipboard_text` / `set_clipboard_text` go through
   `Windows.ApplicationModel.DataTransfer.Clipboard`. On a headless host the capture tests return
   early rather than fail.
-- **Not paired is not broken.** `screenshot` answers "Not paired — cannot upload media." because a
-  capture reaches the agent as an uploaded media id, never as image content: `client.js` flattens
-  any non-text block to the literal string `[image]`, so a tool returning image bytes reaches the
-  model as seven characters. Do not "fix" the tool to return an image block.
+- **A screenshot is MCP image content** (`McpToolResult.ImageBytes`, since 2026-10-07; hub audit cl 3): the hub
+  now keeps image parts (`modules/mcp/content.js`). This paragraph used to forbid exactly that, from when
+  `client.js` flattened a non-text block to `[image]`.
 - **A missing `npx` is one failed row, not a broken app.** DocaDesk shells out to nothing except
   the MCP servers a user defined; `McpStdioClient` turns a `Win32Exception` into
   `"<command>: not found"` (`:216-219`) and the panel draws it. No MCP server ships with the app,
