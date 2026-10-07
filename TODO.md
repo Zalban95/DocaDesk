@@ -16,10 +16,16 @@ in `d:\doca\doca\DOCA\docs\proposals\hub-any-client-any-mcp.md`, not an entry he
   are always rejected (`not_requested`).
 - [x] **`prompt.outcome` and `prompt.progress`** instead of `prompt.updated`, which the hub never sends (cl 23). — *`DocaDesk.Core.PromptEvents`, 2026-10-07*
 - [x] **The socket MCP transport** (`wss://<hub>/api/v1/mcp/host`) (cl 15). — *`McpSocketHost`, 2026-10-07: Settings → This
-  device → "Connect out to the hub"; the listener stays the default.* Not yet run against a live hub from portal.
+  device → "Connect out to the hub"; the listener stays the default.* Run against the live hub (2.302.1) from portal
+  2026-10-07: offered `socket`, accepted, the hub's Files route listed a folder over it in 96 ms, and a revoke/restore of
+  `elevated` took `elevated_run` off the hub's list and back (list_changed down the socket); switched back to the listener after.
 - [x] **Sealed secrets** (hub P1.3, PROTOCOL §22.3, docs/api/sealed-secrets.md) — *`SealedSecrets`, `WindowsSecretSink`,
   `DashboardHost.FillAsync`, 2026-10-07.* Still to watch on a real hub: a field fill in the panel's WebView2, and
   whether Win+V history really leaves the pasted secret out (the formats are set; nobody has looked).
+  Checked live on portal 2026-10-07 (hub 2.302.1, payloads sealed with the hub's key for this device): a tampered or
+  wrong-key payload, one naming or bound to another device, one six minutes old, a replay, `type`/`clipboard` with an
+  origin, `field` without one, an unknown `how` and a look-alike origin are each refused with their sentence, and
+  `files_read` waits out the 60 s hold after it. Note: a `field` whose origin then fails still starts the hold.
 - [ ] **One tool name per family** across clients once PROTOCOL §22.1 has the table (`input_click`/`input_keys` vs the
   phone's `input_tap`/`input_key`) (cl 27).
 

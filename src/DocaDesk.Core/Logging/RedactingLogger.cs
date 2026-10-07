@@ -40,6 +40,10 @@ public sealed class RedactingLogger : IDocaLogger
         _sink = sink ?? DefaultSink;
     }
 
+    /// <summary>Past this the file is moved to <c>docadesk.log.1</c> (the one before is dropped), as the audit log does.</summary>
+    public const long MaxFileBytes = 2_000_000;
+    private static readonly object FileGate = new();
+
     /// <summary>The shipped destination: the debugger when attached, and a file always.</summary>
     private static void DefaultSink(string message)
     {
@@ -49,13 +53,35 @@ public sealed class RedactingLogger : IDocaLogger
             var dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DocaDesk");
             Directory.CreateDirectory(dir);
-            File.AppendAllText(
-                Path.Combine(dir, "docadesk.log"),
+            AppendRotating(Path.Combine(dir, "docadesk.log"),
                 $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
         }
         catch
         {
             // A log line is never worth an exception on the path that produced it.
+        }
+    }
+
+    /// <summary>
+    /// Append a line, first moving a file past <paramref name="maxBytes"/> to <c>&lt;path&gt;.1</c>. The log was never
+    /// rotated, and a hub that cannot be reached writes a few warnings a minute: on portal it had reached 12.6 MB over
+    /// three weeks (74,000 lines, two thirds of them one repeated warning). What is kept is now at most two files.
+    /// </summary>
+    public static void AppendRotating(string path, string line, long maxBytes = MaxFileBytes)
+    {
+        lock (FileGate)
+        {
+            try
+            {
+                var fi = new FileInfo(path);
+                if (fi.Exists && fi.Length >= maxBytes)
+                    File.Move(path, path + ".1", overwrite: true);
+            }
+            catch
+            {
+                // Another process holds it, say: write on, and try again on the next line.
+            }
+            File.AppendAllText(path, line);
         }
     }
 
