@@ -79,7 +79,7 @@ file sealed class ScreenshotTool : IMcpTool
     }
 
     public string Name => "screenshot";
-    public string Description => "Capture a window or monitor; uploads to Doca media and returns media id/url as text.";
+    public string Description => "Capture a window or monitor as an image you see (a copy is also kept in Doca media): a window by its id from the window list, else a monitor.";
     public bool ReadOnlyHint => true;
     public JsonObject InputSchema => new()
     {
