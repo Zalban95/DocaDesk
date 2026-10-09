@@ -49,6 +49,16 @@ public static class AppPrefs
         set => WriteBool("CloseToTray", value);
     }
 
+    /// <summary>
+    /// When true (the default), the app's own windows are drawn in the panel's look, read from the hub
+    /// (<c>GET /api/v1/settings/look</c>). Off: the app's own look, as before.
+    /// </summary>
+    public static bool UseHubLook
+    {
+        get => ReadBool("UseHubLook", true);
+        set => WriteBool("UseHubLook", value);
+    }
+
     public static bool GetToolConsent(string tool, bool fallback = false) => ReadBool("Tool." + tool, fallback);
 
     public static void SetToolConsent(string tool, bool enabled) => WriteBool("Tool." + tool, enabled);

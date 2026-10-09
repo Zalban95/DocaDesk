@@ -25,6 +25,40 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         ServerUrlBox.Text = AppSession.DefaultServerUrl;
         DeviceNameBox.Text = Environment.MachineName;
+        LookApplier.Applied += OnLookApplied;
+        if (Content is FrameworkElement root) LookApplier.Register(root);
+        OnLookApplied(LookApplier.Current);
+    }
+
+    /// <summary>
+    /// The hub's look applied (or taken off): the caption buttons over the title bar are not XAML, so they are given
+    /// the look's text and hover colours here, and Settings says which look is drawn.
+    /// </summary>
+    private void OnLookApplied(Core.Look.DeskLook? look)
+    {
+        try
+        {
+            var bar = AppWindow.TitleBar;
+            Windows.UI.Color? C(string key) => look is not null && look.Brushes.TryGetValue(key, out var c)
+                ? Windows.UI.Color.FromArgb(c.A, c.R, c.G, c.B)
+                : null;
+            bar.ButtonForegroundColor = C("TextFillColorPrimaryBrush");
+            bar.ButtonHoverForegroundColor = C("TextFillColorPrimaryBrush");
+            bar.ButtonHoverBackgroundColor = C("ControlFillColorSecondaryBrush");
+            bar.ButtonPressedBackgroundColor = C("ControlFillColorTertiaryBrush");
+            bar.ButtonInactiveForegroundColor = C("TextFillColorSecondaryBrush");
+            bar.ButtonBackgroundColor = look is null ? null : Microsoft.UI.Colors.Transparent;
+            bar.ButtonInactiveBackgroundColor = look is null ? null : Microsoft.UI.Colors.Transparent;
+        }
+        catch { /* no title bar to colour (closing): the look still applies inside */ }
+        LookStatus.Text = App.Look?.Describe() ?? "";
+    }
+
+    private void HubLook_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_prefsSync) return;
+        App.Look?.SetEnabled(HubLookToggle.IsOn);
+        LookStatus.Text = App.Look?.Describe() ?? "";
     }
 
     public void AttachTray(TrayHost tray) => _tray = tray;
@@ -152,6 +186,7 @@ public sealed partial class MainWindow : Window
         LocalMcpEmpty.Visibility = views.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         foreach (var view in views)
             LocalMcpRows.Children.Add(BuildLocalMcpRow(view));
+        LookApplier.Refresh(LocalMcpRows);
     }
 
     /// <summary>
@@ -528,15 +563,29 @@ public sealed partial class MainWindow : Window
             CloseToTrayToggle.IsOn = AppPrefs.CloseToTray;
             NotifyPromptsToggle.IsOn = AppPrefs.NotifyPrompts;
             NotifyAlertsToggle.IsOn = AppPrefs.NotifyAlerts;
+            HubLookToggle.IsOn = AppPrefs.UseHubLook;
         }
         finally
         {
             _prefsSync = false;
         }
+        LookStatus.Text = App.Look?.Describe() ?? "";
         PrefsStatus.Visibility = Visibility.Collapsed;
         ServerUrlText.Text = _session?.ServerUrl.TrimEnd('/') ?? "";
         ShowOnly(settings: true);
         RefreshMcpUi();
+    }
+
+    /// <summary>The look preview (<c>--look-preview</c>): Settings shown at once, with no hub behind it.</summary>
+    public void ShowSettingsPreview()
+    {
+        Title = "DocaDesk — look preview";
+        TitleText.Text = "DocaDesk — look preview";
+        Settings_Click(this, new RoutedEventArgs());
+        HubLookToggle.IsEnabled = false;   // the preview's look is the file's
+        if (LookPreview.SectionFrom(Environment.GetCommandLineArgs()) is { } tag)
+            foreach (var item in SettingsNav.Items)
+                if (item.Tag as string == tag) DispatcherQueue.TryEnqueue(() => item.IsSelected = true);   // once it is drawn
     }
 
     /// <summary>Preferences save as they are toggled; there is no Save button to miss.</summary>
@@ -571,6 +620,7 @@ public sealed partial class MainWindow : Window
         ServersSection.Visibility = tag == "servers" ? Visibility.Visible : Visibility.Collapsed;
         ActivitySection.Visibility = tag == "activity" ? Visibility.Visible : Visibility.Collapsed;
         if (tag == "hands") RefreshFamilies();
+        LookApplier.Refresh(SettingsPanel);   // a section shown for the first time gets the look's fonts
     }
 
     /// <summary>
@@ -632,6 +682,7 @@ public sealed partial class MainWindow : Window
         HandsUsable.Text = usable.Count > 0
             ? "DOCA is offering the harness: " + string.Join(", ", usable) + "."
             : "DOCA is offering the harness nothing from this machine yet.";
+        LookApplier.Refresh(FamilyRows);
     }
 
     /// <summary>

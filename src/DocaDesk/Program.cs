@@ -1,3 +1,4 @@
+using DocaDesk.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
@@ -13,7 +14,9 @@ public static class Program
     {
         ComWrappersSupport.InitializeComWrappers();
 
-        var key = "DocaDesk";
+        // The look preview (--look-preview file.json) is a window of its own beside a running DocaDesk: no hub, no
+        // tray, no listener, nothing written — so it never takes over the instance a person uses.
+        var key = LookPreview.PathFrom(args) is null ? "DocaDesk" : "DocaDesk.look-preview";
         var instance = AppInstance.FindOrRegisterForKey(key);
         if (!instance.IsCurrent)
         {

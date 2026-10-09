@@ -9,7 +9,7 @@
                 <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="CornerRadius" Value="{ThemeResource DeskCardCornerRadius}" />
                 <Setter Property="Padding" Value="16,12" />
             </Style>
             <Style x:Key="SettingDesc" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
@@ -144,6 +144,21 @@
                                             <TextBlock Text="The X button hides the window and keeps DocaDesk running. Off: X quits." Style="{StaticResource SettingDesc}" />
                                         </StackPanel>
                                         <ToggleSwitch Grid.Column="1" x:Name="CloseToTrayToggle" Toggled="Pref_Toggled" MinWidth="0" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <TextBlock Text="Appearance" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,16,0,4" />
+                                <Border Style="{StaticResource Card}">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Use the hub's look" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="Draw these windows the way the panel is — its colours, light or dark, its style's corners and fonts — read from the hub. Change the look in the panel: Settings → General → Appearance." Style="{StaticResource SettingDesc}" />
+                                            <TextBlock x:Name="LookStatus" Style="{StaticResource SettingDesc}" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" x:Name="HubLookToggle" Toggled="HubLook_Toggled" MinWidth="0" VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
                                 <TextBlock Text="Notifications" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,16,0,4" />

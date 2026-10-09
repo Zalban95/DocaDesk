@@ -293,6 +293,23 @@ public sealed class DocaClient : IAsyncDisposable
         return DocaJson.Deserialize<SealKeyResponse>(text);
     }
 
+    /// <summary>
+    /// GET /api/v1/settings/look — the panel's look for this device, resolved (PROTOCOL §14.1). Null when the hub
+    /// answers 404 (older than device-look): the app keeps its own look.
+    /// </summary>
+    public async Task<Look.PanelLook?> GetLookAsync(CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/v1/settings/look");
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (res.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+        return Look.PanelLookWire.Parse(text);
+    }
+
     /// <summary>Whether a server certificate is one this client trusts (the pin, else the CAs) — for the MCP socket.</summary>
     public bool TrustsCertificate(X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
         ValidateCertificate(this, certificate, chain, errors);

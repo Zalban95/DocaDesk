@@ -1,0 +1,14 @@
+{
+  "type": "settings.changed",
+  "class": "durable",
+  "payload": {
+    "layer": "device",
+    "keys": [
+      "theme",
+      "skin"
+    ],
+    "look": true,
+    "url": "/api/v1/settings/effective",
+    "lookUrl": "/api/v1/settings/look"
+  }
+}

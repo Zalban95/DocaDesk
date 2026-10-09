@@ -366,6 +366,54 @@ Only the Settings page and the HKCU storage live in `src\DocaDesk`.
 - `RegenerateSecretAsync` mints a **new bearer with the new path** and resets `_enforceBearer` to
   false (`:140-154`), so an old header cannot unlock a new URL.
 
+## The panel's look on the app's own windows (hub `device-look`, 2.342.0)
+
+The owner (2026-10-09): the apps' own settings in the panel's look. The hub resolves the look this device's screen
+settings draw — `GET /api/v1/settings/look` (PROTOCOL §14.1): colours by role, a `light` or `dark` ground, the style
+(`classic`/`modern`/`points`), its font lists and corners — and sends `settings.changed` with `look: true` when they
+change on this device's layer or its person's. DocaMobile 1.4.0 does the same (its `panel-look` work).
+
+- **`DocaDesk.Core\Look\`** is the wire and the mapping, pure and tested (`HubLookTests`, on the hub's own fixtures
+  copied into `tests\DocaDesk.Tests\hub-fixtures\` and compared with the sibling checkout's when it has them):
+  `PanelLook`/`PanelLookWire` read the body and the event; `DeskLook.From` maps it onto WinUI — the ground decides
+  Light or Dark, and each theme resource the app draws with takes a role (page ← `bg`, title bar ← `bg2`, card ←
+  `surface`, card stroke ← `border`, text ← `text`/`muted`, accent fills ← `accent` with `onAccent` on them, states ←
+  `red`/`green`/`amber`). **WinUI's control keys (`ToggleSwitchFillOn`, `AccentButtonBackground`,
+  `SelectorBarItemPillFill`…) are `StaticResource` aliases resolved once**, so overriding `AccentFillColorDefaultBrush`
+  does not reach them: every control the windows use is named one by one in `DeskLook.From`. A new kind of control
+  in Settings needs its keys there (`generic.xaml` in the Windows App SDK package lists them). A palette without
+  ground, text or accent is no look.
+- **`Services\HubLook.cs`** reads it when the session becomes Paired and on the event, keeps the last one in
+  `%LOCALAPPDATA%\DocaDesk\look.json` with the hub it came from (a cold start draws it before the hub answers; another
+  hub's is dropped), keeps it through a failure or while Offline, and drops it on unpair or revoke. A 404 (a hub older
+  than 2.342) is DocaDesk's own look. **Settings → General → Appearance → Use the hub's look** (HKCU `UseHubLook`,
+  on by default) turns it off.
+- **`Services\LookApplier.cs`** applies it on the UI thread: one `ResourceDictionary` merged last into the
+  application's resources (brushes, `ControlCornerRadius`, `OverlayCornerRadius`, and `DeskCardCornerRadius`, which the
+  `Card` style now reads), then each registered window root (MainWindow, the prompt window, the metrics panel) is
+  given the look's theme — **flipped through the other theme first**, which is what makes WinUI look its
+  `{ThemeResource}`s up again in a window already drawn (seen on portal: switching the look live redraws the window,
+  and taking it off restores Windows' own). Fonts cannot go through a resource — the type ramp's styles name their
+  font outright — so the applier walks the tree and sets them on each TextBlock and control, marking what it set so
+  the own look restores exactly what was there (Consolas stays the code font; icons are skipped). Rows built in code
+  (`RefreshFamilies`, the local MCP rows, a prompt's choices) call `LookApplier.Refresh` after building. The caption
+  buttons are coloured from the look in `MainWindow.OnLookApplied`.
+- **IBM Plex Sans (Regular, SemiBold) and Plex Mono (Regular) are carried** in `src\DocaDesk\Assets\Fonts\` under the
+  SIL Open Font License 1.1 (`IBM-Plex-OFL.txt` beside them, copied to the output), loaded as
+  `ms-appx:///Assets/Fonts/<file>#<family>` (works unpackaged); text at SemiBold or heavier takes the SemiBold file.
+  A family the app does not carry gives way to the next in the hub's list that Windows has (Modern's Inter → Segoe
+  UI), as a browser does.
+- **Not restyled:** the tray menu (H.NotifyIcon's default `PopupMenu` mode draws a native Windows menu, which follows
+  Windows' own light/dark setting), toast notifications (Windows'), and the dashboard itself (the hub's page, already
+  in its look).
+- **`DocaDesk.exe --look-preview look.json [--section desk]`** opens Settings drawn in a look read from a file (a
+  `/settings/look` body or the bare look) and redraws whenever the file changes — its own single-instance key, no
+  session, tray, listener or hub, so it runs beside the DocaDesk a person uses. That is how the screenshots of
+  Points dark and light were taken on portal (a scheduled task with `/IT`, `PrintWindow` with
+  `PW_RENDERFULLCONTENT`). Its "Use the hub's look" switch is disabled; the other switches are the real prefs.
+- **Not yet seen against a live hub**: the fetch on connect and on `settings.changed` is unit-tested only on the wire
+  shapes; the owner's DocaDesk runs master, and the live hub was not touched.
+
 ## Where things are stored
 
 Everything durable lives under `%LOCALAPPDATA%\DocaDesk\`, outside the repo:
@@ -379,9 +427,10 @@ Everything durable lives under `%LOCALAPPDATA%\DocaDesk\`, outside the repo:
 | `audit.jsonl` (+ `.1`) | `AuditLog`, appended per entry, 500 kept in memory, rotated at 2 MB (`AuditLog.cs:23-29,76-85`) |
 | `event_cursor.txt` | `FileCursorStore` (`CursorAndWatchdog.cs:15-25`) |
 | `tray.ico` | `TrayHost`, generated at runtime rather than checked in |
+| `look.json` | `HubLook`: the last look the hub gave, with the hub it came from — colours and fonts, nothing secret |
 
 App-local booleans are HKCU `Software\DocaDesk` REG_DWORDs, not a file: `StartMinimized`,
-`NotifyPrompts`, `NotifyAlerts`, `McpAutoStart`, `McpOverSocket`, `Tool.<name>` per desk tool, and `Family.<name>` per
+`NotifyPrompts`, `NotifyAlerts`, `McpAutoStart`, `McpOverSocket`, `UseHubLook`, `Tool.<name>` per desk tool, and `Family.<name>` per
 tool family — the last one read as `bool?`, because absent means *never asked* (`AppPrefs.cs`).
 
 **The audit log is not redacted, and that is the design.** `RedactingLogger` covers `Bearer …`,

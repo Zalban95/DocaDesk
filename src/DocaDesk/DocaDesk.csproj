@@ -33,4 +33,10 @@
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
+  <!-- IBM Plex Sans and Mono for the panel's Points and Classic looks (LookApplier), under the SIL Open Font License 1.1:
+       the licence travels beside the fonts. -->
+  <ItemGroup>
+    <Content Include="Assets\Fonts\*.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Fonts\IBM-Plex-OFL.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
