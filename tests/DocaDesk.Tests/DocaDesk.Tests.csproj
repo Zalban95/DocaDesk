@@ -18,6 +18,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- The hub's own fixtures (doca docs/api/fixtures), copied: the look this app maps (HubLookTests). -->
+  <ItemGroup>
+    <None Include="hub-fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\DocaDesk.Core\DocaDesk.Core.csproj" />
     <ProjectReference Include="..\..\src\DocaDesk.Mcp\DocaDesk.Mcp.csproj" />

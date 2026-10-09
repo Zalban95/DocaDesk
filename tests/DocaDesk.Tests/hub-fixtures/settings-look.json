@@ -1,0 +1,77 @@
+{
+  "deviceId": "dev_fixture",
+  "look": {
+    "theme": "pointsDaylight",
+    "themeLabel": "Points Daylight",
+    "skin": "points",
+    "skinLabel": "Points",
+    "ground": "light",
+    "palette": {
+      "bg": "#f4f5f6",
+      "surface": "#ffffff",
+      "raised": "#f7f8f9",
+      "dim": "#ffffff",
+      "faint": "#dde2e7",
+      "border": "#e3e7eb",
+      "border2": "#cdd4db",
+      "text": "#2a3138",
+      "muted": "#5b6570",
+      "bright": "#14181c",
+      "accent": "#17807a",
+      "green": "#2f9e5b",
+      "red": "#c23d3d",
+      "blue": "#4a6a88",
+      "purple": "#5b6f99",
+      "teal": "#17807a",
+      "cyan": "#2b7a99",
+      "amber": "#a86a00",
+      "bgGreen": "#e7f4ec",
+      "bgRed": "#fbeaea",
+      "bgBlue": "#eaf0f6",
+      "bgAmber": "#fbf1de",
+      "bg2": "#fafbfb",
+      "bg3": "#eef1f3",
+      "onAccent": "#ffffff",
+      "stopped": "#b9c1c9",
+      "field": "#4a6a88"
+    },
+    "fonts": {
+      "ui": [
+        "IBM Plex Sans",
+        "system-ui",
+        "-apple-system",
+        "Segoe UI",
+        "sans-serif"
+      ],
+      "text": [
+        "IBM Plex Sans",
+        "system-ui",
+        "-apple-system",
+        "Segoe UI",
+        "sans-serif"
+      ],
+      "display": [
+        "IBM Plex Sans",
+        "system-ui",
+        "sans-serif"
+      ],
+      "mono": [
+        "IBM Plex Mono",
+        "Cascadia Code",
+        "Fira Code",
+        "monospace"
+      ]
+    },
+    "radius": {
+      "control": 6,
+      "card": 10
+    },
+    "inputSize": 13.5,
+    "etag": "92cd6d89b2ab",
+    "from": {
+      "theme": "device",
+      "customTheme": "default",
+      "skin": "device"
+    }
+  }
+}
