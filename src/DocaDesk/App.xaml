@@ -7,6 +7,8 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <!-- A settings card's corners: DocaDesk's own 8, the panel's card radius under its look (LookApplier). -->
+            <CornerRadius x:Key="DeskCardCornerRadius">8</CornerRadius>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

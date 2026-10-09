@@ -13,6 +13,8 @@ public partial class App : Application
     public static AppSession Session { get; } = new();
     public static McpHost Mcp { get; private set; } = null!;
     public static PromptCoordinator Prompts { get; private set; } = null!;
+    /// <summary>The panel's look from the hub, drawn on the app's own windows (null in a window that has none yet).</summary>
+    public static HubLook? Look { get; private set; }
     public static DispatcherQueue? UiDispatcher { get; private set; }
     /// <summary>Bring the main window to the front (a notification was clicked).</summary>
     public static Action? ShowMainWindow { get; private set; }
@@ -50,6 +52,16 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         UiDispatcher = DispatcherQueue.GetForCurrentThread();
+        if (LookPreview.PathFrom(Environment.GetCommandLineArgs()) is { } previewPath)
+        {
+            _window = new MainWindow();
+            Look = new HubLook(null);
+            Look.Changed += l => UiDispatcher.TryEnqueue(() => LookApplier.Apply(l));
+            LookPreview.Start(previewPath, Look);
+            _window.ShowSettingsPreview();
+            _window.Activate();
+            return;
+        }
         DeleteLegacyMcpUrlFile();
         NotificationService.EnsureRegistered();
         Mcp = new McpHost(Session);
@@ -66,6 +78,8 @@ public partial class App : Application
         _window.AttachTray(_tray);
         ShowMainWindow = () => _tray?.ShowWindow();
         _window.BindMcp(Mcp);
+        Look = new HubLook(Session);
+        Look.Changed += l => UiDispatcher?.TryEnqueue(() => LookApplier.Apply(l));
 
         AppInstance.GetCurrent().Activated += OnActivated;
 

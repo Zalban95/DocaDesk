@@ -53,6 +53,7 @@ public sealed class PromptWindow : Window
         Content = root;
         AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 560));
         Bind(prompt, client);
+        DocaDesk.Services.LookApplier.Register(root, paintBackground: true);   // the panel's look, when the hub gives one
     }
 
     public void Bind(PromptDocument prompt, DocaClient client)
@@ -82,6 +83,7 @@ public sealed class PromptWindow : Window
             foreach (var choice in prompt.Choices)
                 _choices.Children.Add(BuildChoice(choice, allowed));
         }
+        DocaDesk.Services.LookApplier.Refresh(Content);
     }
 
     private UIElement BuildChoice(PromptChoice choice, bool allowed)

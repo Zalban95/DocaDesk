@@ -31,6 +31,7 @@ public sealed class MetricsPanelWindow : Window
         root.Children.Add(_list);
         root.Children.Add(_status);
         Content = root;
+        DocaDesk.Services.LookApplier.Register(root, paintBackground: true);   // the panel's look, when the hub gives one
         AppWindow.Resize(new Windows.Graphics.SizeInt32(360, 480));
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(ResolveRefreshSec()) };
