@@ -70,7 +70,7 @@ public sealed class MeetingBanner
         var (w, h) = (Math.Min(560, area.Width), 52);
         aw.MoveAndResize(new Windows.Graphics.RectInt32(area.X + (area.Width - w) / 2, area.Y + 8, w, h));
         aw.IsShownInSwitchers = false;
-        aw.Closing += (_, e) => { e.Cancel = true; _ = StopAsync(); };   // closing it is a Stop, never a way to hide it
+        aw.Closing += (sender, e) => { e.Cancel = true; var stopping = StopAsync(); };   // closing it is a Stop, never a way to hide it
     }
 
     /// <summary>The person's Stop: input refused now, the hub told, the banner gone when the hub confirms.</summary>
