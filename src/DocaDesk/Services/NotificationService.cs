@@ -69,6 +69,33 @@ public static class NotificationService
         }
     }
 
+    /// <summary>
+    /// A call ringing or about to start (hub meetings): Join opens the room in the panel window — the hub's own
+    /// /meet/&lt;id&gt; on the address DocaDesk uses, never an address from the notice.
+    /// </summary>
+    public static void ShowMeeting(DocaDesk.Core.MeetingRing ring, string title, string body)
+    {
+        EnsureRegistered();
+        if (!_available) return;
+        try
+        {
+            var toast = new AppNotificationBuilder()
+                .AddText(string.IsNullOrWhiteSpace(title) ? "A call" : title)
+                .AddText(body)
+                .AddArgument("action", "join-meeting")
+                .AddArgument("meeting", ring.Id)
+                .AddButton(new AppNotificationButton("Join").AddArgument("action", "join-meeting").AddArgument("meeting", ring.Id))
+                .SetScenario(AppNotificationScenario.IncomingCall)
+                .SetTag("meeting-" + ring.Id)
+                .BuildNotification();
+            AppNotificationManager.Default.Show(toast);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("ShowMeeting toast failed: " + ex.Message);
+        }
+    }
+
     private const string AttentionTag = "panel-attention";
 
     /// <summary>
@@ -126,6 +153,12 @@ public static class NotificationService
 
     private static void OnInvoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
     {
+        if (args.Arguments.TryGetValue("action", out var join) && join == "join-meeting"
+            && args.Arguments.TryGetValue("meeting", out var meeting) && DocaDesk.Core.Meetings.IsId(meeting))
+        {
+            App.UiDispatcher?.TryEnqueue(() => { App.ShowMainWindow?.Invoke(); App.OpenMeeting?.Invoke(meeting); });
+            return;
+        }
         if (args.Arguments.TryGetValue("action", out var open) && open == "open-window")
         {
             App.UiDispatcher?.TryEnqueue(() => App.ShowMainWindow?.Invoke());

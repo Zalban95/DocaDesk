@@ -64,6 +64,13 @@ public sealed class PromptCoordinator
         {
             var title = ev.Payload?.TryGetProperty("title", out var t) == true ? t.GetString() : "Alert";
             var body = ExtractAlertBody(ev.Payload);
+            // A call ringing: a toast with Join (and the tray's Join), not a plain alert.
+            if (Meetings.RingOf(ev.Payload, body) is { } ring)
+            {
+                App.LastRing = (ring, DateTime.UtcNow);
+                NotificationService.ShowMeeting(ring, title ?? "A call", body.Split('\n').FirstOrDefault(l => !l.StartsWith("Join:", StringComparison.Ordinal)) ?? body);
+                return;
+            }
             NotificationService.ShowAlert(title ?? "Alert", body);
         }
     }

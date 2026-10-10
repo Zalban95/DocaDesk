@@ -52,6 +52,10 @@ public sealed class DashboardHost : DocaDesk.Mcp.ISecretField
                 _webView.CoreWebView2.Settings.UserAgent = $"{ua} {DocaDesk.Core.SoloPages.UserAgentMark}";
             // The one Authorization header is NavigateHome's first load (D-9).
             _webView.CoreWebView2.WebMessageReceived += OnWebMessage;
+            // Meetings: the camera and microphone for the hub's own page only, and a screen capture (getDisplayMedia,
+            // WebView2's own picker) only for it too (DocaDesk.Core.Meetings decides).
+            _webView.CoreWebView2.PermissionRequested += OnPermissionRequested;
+            _webView.CoreWebView2.ScreenCaptureStarting += OnScreenCaptureStarting;
             try { await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(DocaDesk.Core.PanelAttention.Script); }
             catch { /* without it the window simply cannot say a dialog is waiting */ }
         }
@@ -69,6 +73,31 @@ public sealed class DashboardHost : DocaDesk.Mcp.ISecretField
         try { json = e.WebMessageAsJson; } catch { return; }
         if (DocaDesk.Core.PanelAttention.Parse(json) is { } kinds)
             AttentionChanged?.Invoke(kinds);
+    }
+
+    private void OnPermissionRequested(CoreWebView2 sender, CoreWebView2PermissionRequestedEventArgs e)
+    {
+        if (_serverRoot is null) return;
+        Uri.TryCreate(e.Uri, UriKind.Absolute, out var from);
+        switch (DocaDesk.Core.Meetings.Permission(e.PermissionKind.ToString(), from, _serverRoot))
+        {
+            case DocaDesk.Core.PermissionAnswer.Allow: e.State = CoreWebView2PermissionState.Allow; e.SavesInProfile = false; break;
+            case DocaDesk.Core.PermissionAnswer.Deny: e.State = CoreWebView2PermissionState.Deny; break;
+        }
+    }
+
+    private void OnScreenCaptureStarting(CoreWebView2 sender, CoreWebView2ScreenCaptureStartingEventArgs e)
+    {
+        if (_serverRoot is null) { e.Cancel = true; return; }
+        Uri.TryCreate(sender.Source, UriKind.Absolute, out var from);
+        e.Cancel = !DocaDesk.Core.Meetings.ScreenCapture(from, _serverRoot);
+    }
+
+    /// <summary>Open a meeting's room: the hub's own /meet/&lt;id&gt; on the address in use.</summary>
+    public void OpenRoom(string id)
+    {
+        if (_serverRoot is null || _webView.CoreWebView2 is null) return;
+        if (DocaDesk.Core.Meetings.RoomUri(_serverRoot, id) is { } room) _webView.CoreWebView2.Navigate(room.ToString());
     }
 
     private void OnNavigationCompleted(CoreWebView2 sender, CoreWebView2NavigationCompletedEventArgs e)

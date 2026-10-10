@@ -206,6 +206,22 @@ public sealed class DocaClient : IAsyncDisposable
         return res.StatusCode;
     }
 
+    /// <summary>The controlled machine's own Stop (PROTOCOL §23.4): every meeting control of this device ends. Answers how many.</summary>
+    public async Task<int> StopMeetingControlAsync(CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/meetings/control/stop")
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+        };
+        ApplyAuth(req);
+        using var res = await _api.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+            throw DocaErrorMapper.FromHttp((int)res.StatusCode, text);
+        using var doc = System.Text.Json.JsonDocument.Parse(string.IsNullOrEmpty(text) ? "{}" : text);
+        return doc.RootElement.TryGetProperty("ended", out var n) && n.TryGetInt32(out var i) ? i : 0;
+    }
+
     public async Task ConfirmAsync(string promptId, ConfirmRequest body, CancellationToken ct = default)
     {
         var json = DocaJson.Serialize(body);

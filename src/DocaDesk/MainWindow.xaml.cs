@@ -464,6 +464,8 @@ public sealed partial class MainWindow : Window
                     if (_session?.State == SessionState.Paired && !_settingsOpen)
                         ShowOnly(dashboard: true);
                 });
+                var dash = _dashboard;
+                App.OpenMeeting = id => DispatcherQueue.TryEnqueue(() => dash.OpenRoom(id));
                 await _dashboard.InitializeAsync(new Uri(_session.ServerUrl));
                 _dashboard.UseDeviceToken(_session.Client?.Token);   // signs the WebView in like DocaMobile (D-9)
                 _dashboard.NavigateHome();
