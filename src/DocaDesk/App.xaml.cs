@@ -18,6 +18,12 @@ public partial class App : Application
     public static DispatcherQueue? UiDispatcher { get; private set; }
     /// <summary>Bring the main window to the front (a notification was clicked).</summary>
     public static Action? ShowMainWindow { get; private set; }
+    /// <summary>Open a meeting's room in the panel window (a notification's or the tray's Join).</summary>
+    public static Action<string>? OpenMeeting { get; set; }
+    /// <summary>The last call that rang, for the tray's Join (ten minutes).</summary>
+    public static (DocaDesk.Core.MeetingRing Ring, DateTime At)? LastRing { get; set; }
+    /// <summary>The controlled-machine banner (meetings): shows itself while a person controls this computer.</summary>
+    public static MeetingBanner? Banner { get; private set; }
 
     public App()
     {
@@ -68,6 +74,7 @@ public partial class App : Application
         await Mcp.InitializeAsync();
         Session.Revoked += async _ => await Mcp.StopAsync();
         Prompts = new PromptCoordinator(Session);
+        Banner = new MeetingBanner(Session);
 
         var startToTray = Environment.GetCommandLineArgs().Any(a =>
             string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase))

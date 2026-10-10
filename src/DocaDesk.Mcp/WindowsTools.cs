@@ -105,6 +105,7 @@ file sealed class MoveTool(AuditLog? audit) : IMcpTool
 
     public Task<McpToolResult> CallAsync(JsonNode? args, string sessionId, CancellationToken ct)
     {
+        if (MeetingHold.Held) return Task.FromResult(WindowsTools.Err(MeetingHold.Refusal));
         int x = args?["x"]?.GetValue<int>() ?? 0, y = args?["y"]?.GetValue<int>() ?? 0;
         audit?.Add("input.move", $"{x},{y}", sessionId);
         return Task.FromResult(Native.SetCursorPos(x, y) ? WindowsTools.Ok() : WindowsTools.Err($"Could not move the pointer to {x},{y}."));
@@ -120,6 +121,7 @@ file sealed class ClickTool(AuditLog? audit) : IMcpTool
 
     public Task<McpToolResult> CallAsync(JsonNode? args, string sessionId, CancellationToken ct)
     {
+        if (MeetingHold.Held) return Task.FromResult(WindowsTools.Err(MeetingHold.Refusal));
         try
         {
             if (args?["x"] is not null && args?["y"] is not null &&
@@ -152,6 +154,7 @@ file sealed class TypeTool(AuditLog? audit) : IMcpTool
 
     public Task<McpToolResult> CallAsync(JsonNode? args, string sessionId, CancellationToken ct)
     {
+        if (MeetingHold.Held) return Task.FromResult(WindowsTools.Err(MeetingHold.Refusal));
         var text = args?["text"]?.GetValue<string>() ?? "";
         try
         {
@@ -198,6 +201,7 @@ file sealed class KeysTool(AuditLog? audit) : IMcpTool
 
     public Task<McpToolResult> CallAsync(JsonNode? args, string sessionId, CancellationToken ct)
     {
+        if (MeetingHold.Held) return Task.FromResult(WindowsTools.Err(MeetingHold.Refusal));
         var spec = args?["keys"]?.GetValue<string>() ?? "";
         try
         {

@@ -414,6 +414,31 @@ change on this device's layer or its person's. DocaMobile 1.4.0 does the same (i
 - **Not yet seen against a live hub**: the fetch on connect and on `settings.changed` is unit-tested only on the wire
   shapes; the owner's DocaDesk runs master, and the live hub was not touched.
 
+## Meetings (hub branch `meet-in-apps`, PROTOCOL §23.4)
+
+The owner (2026-10-10): "Video calling + screen sharing in the app." The room is the hub's meeting page in the panel
+window; WebView2 has `getDisplayMedia` with its own picker, so unlike DocaMobile there is no capture bridge — the desk
+only answers, and every answer is `DocaDesk.Core.Meetings` (pure, `MeetingsTests` on the hub's own frames in
+`hub-fixtures\`: `alert-meeting.json`, `meeting.control.json`).
+
+- **Permissions** (`DashboardHost.OnPermissionRequested`, `OnScreenCaptureStarting`): the camera and the microphone are
+  allowed to the hub's own address (scheme, host and port, no user info) and denied to any other page; a screen capture
+  starts only from the hub's page; every other permission kind is left to WebView2. Nothing is saved in the profile.
+- **Join**: an `alert` carrying `meeting {id, link}` (an older hub: the `/meet/<id>` in its text) is an incoming-call
+  toast with **Join**, and the tray has **Join the last call** for ten minutes; both load the hub's own `/meet/<id>` on
+  the address in use (`DashboardHost.OpenRoom`), never an address from the notice.
+- **The controlled-machine banner** (`Services\MeetingBanner.cs`): the hub's `meeting.control` (`state: active`) shows a
+  red window on top, at the top of the screen: "<name> is controlling this computer" with **Stop**; `ended` takes it
+  away. Stop (or closing it) holds the input tools for up to ten seconds (`DocaDesk.Mcp.MeetingHold`, checked first in
+  `input_move/click/type/keys`) so input already on its way does not land, and posts
+  `POST /api/v1/meetings/control/stop`, which ends control of this device and tells the room.
+- **Not run on portal's desktop yet**: the GUI could not be started beside the owner's DocaDesk (one instance; it is
+  relaunched only from master). Built on portal in `D:\doca\DocaDesk-panel-look` (branch `meet-in-apps`), and
+  `dotnet test`: 195 passed, 2 failed — `GraphicsCaptureGrabberTests`, which need an interactive desktop and fail the
+  same way over SSH ("The specified service does not exist"). To check after release: a meeting's camera and
+  microphone without a prompt, Share screen opening WebView2's picker, the Join toast, the banner and its Stop.
+- **No version was bumped**: this repo has none yet ("Nothing in this repo sets a version", below).
+
 ## Where things are stored
 
 Everything durable lives under `%LOCALAPPDATA%\DocaDesk\`, outside the repo:

@@ -1,0 +1,11 @@
+{
+  "type": "meeting.control",
+  "class": "durable",
+  "payload": {
+    "grant": "ctl_0123456789ab",
+    "meetingId": "m0123456789ab",
+    "state": "active",
+    "controller": "Bob",
+    "sharer": "Alice"
+  }
+}

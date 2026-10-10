@@ -1,0 +1,24 @@
+{
+  "type": "alert",
+  "class": "durable",
+  "payload": {
+    "id": "alt_fixture",
+    "title": "Alice is calling",
+    "body": [
+      {
+        "type": "text",
+        "text": "Design sync\nJoin: https://hub.example.ts.net:4242/meet/m0123456789ab",
+        "style": "body"
+      }
+    ],
+    "priority": "urgent",
+    "haptic": true,
+    "from": "harness",
+    "meeting": {
+      "id": "m0123456789ab",
+      "link": "https://hub.example.ts.net:4242/meet/m0123456789ab",
+      "title": "Design sync",
+      "by": "Alice"
+    }
+  }
+}

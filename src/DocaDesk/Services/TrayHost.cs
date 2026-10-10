@@ -24,6 +24,12 @@ public sealed class TrayHost : IDisposable
 
         var showCmd = new XamlUICommand { Label = "Open DocaDesk" };
         var quitCmd = new XamlUICommand { Label = "Quit" };
+        var joinCmd = new XamlUICommand { Label = "Join the call" };
+        joinCmd.ExecuteRequested += (_, _) =>
+        {
+            if (App.LastRing is { } r && DateTime.UtcNow - r.At < TimeSpan.FromMinutes(10)) { ShowWindow(); App.OpenMeeting?.Invoke(r.Ring.Id); }
+            else ShowWindow();
+        };
         showCmd.ExecuteRequested += (_, _) => ShowWindow();
         quitCmd.ExecuteRequested += (_, _) => Quit();
 
@@ -37,6 +43,7 @@ public sealed class TrayHost : IDisposable
                 Items =
                 {
                     new MenuFlyoutItem { Text = "Open DocaDesk", Command = showCmd },
+                    new MenuFlyoutItem { Text = "Join the last call", Command = joinCmd },
                     new MenuFlyoutSeparator(),
                     new MenuFlyoutItem { Text = "Quit", Command = quitCmd },
                 },

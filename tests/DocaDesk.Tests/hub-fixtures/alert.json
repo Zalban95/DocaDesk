@@ -1,0 +1,18 @@
+{
+  "type": "alert",
+  "class": "durable",
+  "payload": {
+    "id": "alt_fixture",
+    "title": "The render finished",
+    "body": [
+      {
+        "type": "text",
+        "text": "turbine-front.png is in the chat.",
+        "style": "body"
+      }
+    ],
+    "priority": "high",
+    "haptic": true,
+    "from": "harness"
+  }
+}
