@@ -75,6 +75,24 @@ public sealed class DocaClient : IAsyncDisposable
     public HttpClient ApiHttp => _api;
     public HttpClient StreamHttp => _stream;
 
+    private HttpMessageInvoker? _relay;
+
+    /// <summary>
+    /// The hub, pinned like every other request, with nothing of this device's on it: no token, no cookies, no
+    /// <c>X-Doca-Client</c>, no redirects followed, nothing decompressed — what a cast door forwards a TV's requests
+    /// through (PROTOCOL §22.5 <c>cast_serve</c>), so the hub sees the TV's own view session and nothing else. An
+    /// invoker rather than an HttpClient: it hands back the answer as soon as its headers arrive, so a page's live
+    /// feed (SSE) streams instead of being read to the end first.
+    /// </summary>
+    public HttpMessageInvoker RelayInvoker => _relay ??= new HttpMessageInvoker(new SocketsHttpHandler
+    {
+        UseCookies = false,
+        AllowAutoRedirect = false,
+        AutomaticDecompression = DecompressionMethods.None,
+        ConnectTimeout = TimeSpan.FromSeconds(30),
+        SslOptions = { RemoteCertificateValidationCallback = ValidateCertificate },
+    });
+
     private bool ValidateCertificate(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors)
     {
         var cert2 = certificate as X509Certificate2 ?? (certificate is not null ? new X509Certificate2(certificate) : null);
@@ -430,6 +448,7 @@ public sealed class DocaClient : IAsyncDisposable
     {
         _api.Dispose();
         _stream.Dispose();
+        _relay?.Dispose();
         _handler.Dispose();
         await ValueTask.CompletedTask.ConfigureAwait(false);
     }

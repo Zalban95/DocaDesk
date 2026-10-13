@@ -278,10 +278,10 @@ same **tool families** the host has, as far as its OS allows. All four files are
 `DocaDesk.Mcp` on purpose** — the Linux client is meant to reuse them unchanged (design §6 step 3).
 Only the Settings page and the HKCU storage live in `src\DocaDesk`.
 
-- **The nine family names are DOCA's** (`modules/devices-control.js:25`), and a grants report keeps
+- **The twelve family names are DOCA's** (`modules/devices-control.js:25`), and a grants report keeps
   only the keys whose value is a boolean (`:89`). So an unknown name is dropped **in silence** — a
   typo is not an error, it is a family that never gets offered and no message saying why. `FamilyConsent.ReportBody()`
-  therefore sends **all nine explicitly**, `false` included; omitting one leaves whatever DOCA held.
+  therefore sends **all twelve explicitly**, `false` included; omitting one leaves whatever DOCA held.
 - **Granted and revoked are two facts, not one flag.** *Granted* is the person's answer, asked once
   per family in our UI and remembered in HKCU as `Family.<name>` — where **absent ≠ false**, which
   is why `AppPrefs.GetFamilyGrant` returns `bool?` and does not use `ReadBool`'s fallback: "never
@@ -309,9 +309,22 @@ Only the Settings page and the HKCU storage live in `src\DocaDesk`.
 - **The family tools gate on `FamilyConsent`, not `ToolConsent`.** They are registered in
   `ToolConsent` as always-on and refuse internally, because a family is one question asked once —
   not seven switches. Do not "fix" this into per-tool toggles without reading design §2.
-- **Implemented on Windows: `files`, `shell`, `processes`, `screen`, `input`, `apps`, `elevated`**
-  (`ToolFamilies.Implemented`, per OS; Linux: `files`, `shell`, `processes`, `apps`). `device` and
-  `mcp` are reported `false` everywhere and drawn disabled — see `TODO.md`.
+- **Implemented on Windows: `files`, `shell`, `processes`, `screen`, `input`, `apps`, `elevated`, `nearby`, `cast`**
+  (`ToolFamilies.Implemented`, per OS; Linux: `files`, `shell`, `processes`, `apps`, `nearby`, `cast`). `device` and
+  `mcp` are reported `false` everywhere and drawn disabled — see `TODO.md`; `home` is a home node's (§22.4), never a
+  desk's. The list is DOCA's twelve, in its order — `NearbyCastTests` compares it with `devices-control.js` when a
+  hub checkout from §22.5 on sits beside this repo.
+- **`nearby` and `cast` (PROTOCOL §22.5) are doca-client's and DocaMobile's, ported** — names, arguments and result
+  shapes are the hub's, because the hub merges a client's sightings unchanged and drives its relay the same way for
+  every client. `NearbyCastTools` lends `nearby_network` (subnet, gateway, and the gateway card's hash — the hub's own
+  `hashMac`, so a desk and a hub on one Wi-Fi recognise it: checked live, both read the same hash), `nearby_scan`
+  (Cast by mDNS — a legacy-unicast query from a port of our own, so Windows' responder on 5353 is never in the way —
+  UPnP/DLNA by SSDP, descriptions fetched only from a private address over http, and `arp -a` read in any language;
+  Bonjour beyond Cast and Bluetooth are named in `why`), `nearby_probe`, `cast_serve` (`CastDoor`: a door on this
+  machine's address on the target's /24, answering the target alone; a page forwards to the hub through
+  `DocaClient.RelayInvoker` — pinned, no token, no cookies, no `X-Doca-*`, no redirects, streamed so SSE works; Host
+  and Origin become the hub's and Set-Cookie loses Secure; a sound is served from here), `cast_send` (`CastSender`
+  over `CastWire`, byte for byte the hub's `castv2/wire.js`) and `cast_end`. A door ends with the app.
 - **A family's tools are listed only while it is usable** (`FamilyTool.Offered`, composed into
   `DynamicTools` in `McpHost.StartAsync`). DOCA's `modules/mcp/tools.js` exposes every tool a
   device lists, whatever its grants, so this listener is what makes "a tool the device would refuse
