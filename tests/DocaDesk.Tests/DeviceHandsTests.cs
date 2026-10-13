@@ -56,7 +56,7 @@ public class DeviceHandsTests
         var body = c.ReportBody();
 
         // DOCA keeps only keys whose value is a boolean, so an omitted family keeps its old value.
-        Assert.Equal(9, body.Count);
+        Assert.Equal(12, body.Count);
         foreach (var f in ToolFamilies.All) Assert.True(body.ContainsKey(f));
         Assert.True(body[ToolFamilies.Files]);
         Assert.False(body[ToolFamilies.Device]);         // never offer what we cannot serve
@@ -286,7 +286,7 @@ public class DeviceHandsTests
         c.SetGranted(ToolFamilies.Files, true);          // same answer again: nothing to report
         Assert.Equal(1, grants);
 
-        // A report writes DOCA's revocations back for all nine families. When that raised the
+        // A report writes DOCA's revocations back for all twelve families. When that raised the
         // event the report listens to, one toggle fanned out without end (D-19).
         foreach (var f in ToolFamilies.All) c.SetRevoked(f, false);
         c.SetRevoked(ToolFamilies.Files, true);

@@ -4,7 +4,7 @@ namespace DocaDesk.Mcp;
 /// The tool families a paired device can offer the harness (PROTOCOL.md §22.1,
 /// docs/design/devices-as-hands.md §1).
 ///
-/// **These names are DOCA's, not ours.** `modules/devices-control.js:25` holds the same nine and
+/// **These names are DOCA's, not ours.** `modules/devices-control.js:25` holds the same twelve and
 /// drops anything it does not recognise from a grants report (`:89`), silently — so a typo here
 /// does not fail, it just means the family is never offered to the harness and nobody can see why.
 /// Keep the list identical and in the same order.
@@ -20,10 +20,13 @@ public static class ToolFamilies
     public const string Device = "device";
     public const string Elevated = "elevated";
     public const string Mcp = "mcp";
+    public const string Home = "home";
+    public const string Nearby = "nearby";
+    public const string Cast = "cast";
 
-    /// <summary>All nine, in DOCA's order.</summary>
+    /// <summary>All twelve, in DOCA's order.</summary>
     public static readonly IReadOnlyList<string> All =
-        [Files, Shell, Processes, Screen, Input, Apps, Device, Elevated, Mcp];
+        [Files, Shell, Processes, Screen, Input, Apps, Device, Elevated, Mcp, Home, Nearby, Cast];
 
     /// <summary>
     /// What this build can actually do on this OS, whatever the person allows. A family absent
@@ -32,11 +35,12 @@ public static class ToolFamilies
     ///
     /// `screen` is listed for Windows although its tools are built in the app (they need
     /// `DocaDesk.Capture`, which this project cannot reference) — a host that constructs no screen
-    /// tools simply lists none. `device` and `mcp` are deliberately absent everywhere: see TODO.md.
+    /// tools simply lists none. `device` and `mcp` are deliberately absent everywhere: see TODO.md; `home` is a home node's
+    /// (§22.4), which a desk is not. `nearby` and `cast` (§22.5) are portable .NET.
     /// </summary>
     public static readonly IReadOnlyList<string> Implemented = OperatingSystem.IsWindows()
-        ? [Files, Shell, Processes, Screen, Input, Apps, Elevated]
-        : [Files, Shell, Processes, Apps];
+        ? [Files, Shell, Processes, Screen, Input, Apps, Elevated, Nearby, Cast]
+        : [Files, Shell, Processes, Apps, Nearby, Cast];
 
     /// <summary>A human sentence for the consent prompt. One per family, because the prompt is the consent.</summary>
     public static string Describe(string family) => family switch
@@ -50,6 +54,9 @@ public static class ToolFamilies
         Device => "show notifications and ask you questions",
         Elevated => "run administrator actions (Windows asks for UAC each time)",
         Mcp => "use the MCP servers this machine forwards",
+        Home => "reach the home this machine runs",
+        Nearby => "see what is around this machine: speakers, TVs and other devices on its network",
+        Cast => "show pages and play sounds on TVs and speakers on this machine's network, through this machine",
         _ => family,
     };
 }

@@ -31,6 +31,7 @@ public sealed class McpHost : IAsyncDisposable
     private readonly LocalMcpRegistry _localServers;
     private readonly FamilyConsent _families;
     private readonly DeviceHands _hands;
+    private readonly CastDoor _castDoor;
     private McpHttpListener? _listener;
     private McpSocketHost? _socket;
     private string _secret = McpHttpListener.NewPathSecret();
@@ -53,6 +54,8 @@ public sealed class McpHost : IAsyncDisposable
         // but FamilyConsent itself knows nothing about the registry — the Linux client supplies its
         // own two delegates and reuses the rest of the file unchanged.
         _families = new FamilyConsent(AppPrefs.GetFamilyGrant, AppPrefs.SetFamilyGrant);
+        // A cast's door forwards to the hub over the session's own pinned connection, adding nothing of ours (§22.5).
+        _castDoor = new CastDoor(() => _session.Client?.RelayInvoker, () => _session.Client?.BaseAddress);
         _hands = new DeviceHands(() => _session.Client, _families, _audit)
         {
             OnReconnect = ct => _session.RefreshConnectionAsync(ct),
@@ -210,6 +213,7 @@ public sealed class McpHost : IAsyncDisposable
             .Concat(ProcessAppTools.Create(_families, _audit))
             .Concat(WindowsTools.Create(_families, _audit))
             .Concat(DeskTools.CreateScreenFamily(_capturer, () => _session.Client, _audit, OnCaptureFlash, _families))
+            .Concat(NearbyCastTools.Create(_families, _castDoor, _audit))
             .ToArray();
         foreach (var t in familyTools)
             _consent.Register(t.Name, true);
@@ -592,6 +596,7 @@ public sealed class McpHost : IAsyncDisposable
         // These are our child processes; leaving them behind would leak them. Background shell
         // jobs too: after quit nobody could see or stop them.
         ShellTools.StopAllJobs();
+        _castDoor.Dispose();   // an open door would keep answering a TV after DocaDesk has gone
         await _localServers.DisposeAsync().ConfigureAwait(false);
     }
 }
