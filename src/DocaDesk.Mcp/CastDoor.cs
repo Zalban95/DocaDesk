@@ -74,7 +74,14 @@ public sealed partial class CastDoor : IDisposable
                 TcpClient s;
                 try { s = await server.AcceptTcpClientAsync().ConfigureAwait(false); } catch { break; }
                 if (Now > door.Until) { s.Dispose(); End(cast); break; }
-                _ = Task.Run(async () => { using (s) { try { await HandleAsync(door, s).ConfigureAwait(false); } catch { /* the TV went away */ } } });
+                _ = Task.Run(async () =>
+                {
+                    using (s)
+                    {
+                        try { await HandleAsync(door, s).ConfigureAwait(false); } catch { /* the TV went away */ }
+                        await CloseAsync(s).ConfigureAwait(false);
+                    }
+                });
             }
         });
         return door.Base;
@@ -181,6 +188,22 @@ public sealed partial class CastDoor : IDisposable
                 await net.FlushAsync().ConfigureAwait(false);   // a page's live feed is SSE
             }
         }
+    }
+
+    /// <summary>
+    /// End an answer cleanly: our side first, then what the other side still sends, briefly. Closing with its request
+    /// unread (a stranger's, refused) makes Windows reset the connection, which reads as an error rather than a 404.
+    /// </summary>
+    private static async Task CloseAsync(TcpClient s)
+    {
+        try
+        {
+            s.Client.Shutdown(SocketShutdown.Send);
+            using var cts = new CancellationTokenSource(1000);
+            var buf = new byte[4096];
+            while (await s.GetStream().ReadAsync(buf, cts.Token).ConfigureAwait(false) > 0) { }
+        }
+        catch { /* already gone */ }
     }
 
     private static async Task PlainAsync(Stream net, int code, string text)

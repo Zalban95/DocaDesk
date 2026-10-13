@@ -41,6 +41,11 @@ public static class NearbyCastTools
     ];
 
     private static string Str(JsonNode? a, string k) => a?[k] is JsonValue v && v.TryGetValue<string>(out var s) ? s : "";
+    /// <summary>A number however it came: an int, a double, or a JSON element.</summary>
+    private static double? Num(JsonNode? n) => n is JsonValue v
+        ? v.TryGetValue<double>(out var d) ? d : v.TryGetValue<int>(out var i) ? i : v.TryGetValue<long>(out var l) ? l
+        : v.TryGetValue<System.Text.Json.JsonElement>(out var e) && e.ValueKind == System.Text.Json.JsonValueKind.Number ? e.GetDouble() : null
+        : null;
     private static string Plain(string a) => a.StartsWith("::ffff:", StringComparison.Ordinal) ? a[7..] : a;
     private static bool Private(string ip) => NearbyNetwork.PrivateV4().IsMatch(ip) || (Loopback && ip == "127.0.0.1");
 
@@ -92,7 +97,7 @@ public static class NearbyCastTools
 
     private static async Task<JsonNode> ProbeAsync(JsonNode? a, CancellationToken ct)
     {
-        var port = a?["port"] is JsonValue p && p.TryGetValue<double>(out var n) && n is > 0 and < 65536 ? (int)n : 8009;
+        var port = Num(a?["port"]) is > 0 and < 65536 and var n ? (int)n : 8009;
         var t0 = Environment.TickCount64;
         bool open;
         using (var tcp = new TcpClient())
@@ -129,7 +134,7 @@ public static class NearbyCastTools
             media[token] = new CastDoor.Media(Convert.FromBase64String(Str(f, "data")), Str(f, "mime") is { Length: > 0 } m ? m : "application/octet-stream");
         }
         var page = a?["page"] is JsonValue pv && pv.TryGetValue<bool>(out var pb) && pb;
-        var ttlSec = a?["ttlSec"] is JsonValue tv && tv.TryGetValue<double>(out var t) && t > 0 ? t : 3 * 3600;
+        var ttlSec = Num(a?["ttlSec"]) is > 0 and var t ? t : 3 * 3600;
         var @base = door.Serve(id, target, here, page, media, page ? TimeSpan.FromSeconds(ttlSec) : TimeSpan.FromMinutes(10));
         audit?.Add("cast.serve", $"{(page ? "page" : "sound")} to {target}");
         return Task.FromResult<JsonNode>(new JsonObject { ["base"] = @base });
@@ -139,7 +144,7 @@ public static class NearbyCastTools
     {
         var t = a?["target"];
         var host = Plain(t is JsonObject ? Str(t, "address") : Str(a, "target"));
-        var port = t?["port"] is JsonValue pv && pv.TryGetValue<double>(out var p) && p > 0 ? (int)p : 8009;
+        var port = Num(t?["port"]) is > 0 and < 65536 and var p ? (int)p : 8009;
         if (!Private(host)) throw new ArgumentException("The target is a private IPv4 address on this machine's network.");
         var what = Str(a, "do");
         await using var s = await CastSender.ConnectAsync(host, port, plain: Loopback).ConfigureAwait(false);
@@ -181,7 +186,7 @@ public static class NearbyCastTools
                 }
             case "volume":
                 {
-                    var v = Math.Clamp(a?["value"] is JsonValue vv && vv.TryGetValue<double>(out var d) ? d : 0, 0, 1);
+                    var v = Math.Clamp(Num(a?["value"]) ?? 0, 0, 1);
                     await s.VolumeAsync(v).ConfigureAwait(false);
                     return new JsonObject { ["ok"] = true, ["state"] = new JsonObject { ["volume"] = v } };
                 }
